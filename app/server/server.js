@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '1.1.0'; // v1.1.0 改：下载/导入/详情/自定义存储/分类整理/通知配置/恢复预览/UI 完整升级
+const VERSION = '1.1.3'; // v1.1.3 改：回收站闭环/恢复安全/审计/备注标签/模板/大文件扫描
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -100,6 +100,7 @@ app.use('/api/config', require('./routes/config'));
 app.use('/api/history', require('./routes/history'));
 app.use('/api/notify', require('./routes/notify'));
 app.use('/api/storage', require('./routes/storage'));
+app.use('/api/audit', require('./routes/audit'));
 
 // 全局错误处理
 app.use((err, req, res, next) => {

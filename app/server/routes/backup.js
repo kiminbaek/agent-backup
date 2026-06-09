@@ -6,6 +6,7 @@ const path = require('path');
 const auth = require('../lib/auth');
 const backup = require('../lib/backup-engine');
 const storage = require('../lib/storage');
+const audit = require('../lib/audit');
 
 const requireAuth = auth.requireToken;
 const STATUS_FILE = backup.STATUS_FILE;
@@ -103,13 +104,67 @@ router.post('/import', requireAuth, async (req, res) => {
     });
 });
 
-router.post('/trash/:id', requireAuth, (req, res) => {
-    try { res.json(backup.trashBackup(req.params.id)); }
+router.post('/protect/:id', requireAuth, (req, res) => {
+    try { res.json(backup.setProtected(req.params.id, !!(req.body && req.body.protected))); }
     catch (e) { res.status(400).json({ error: e.message }); }
 });
 
-router.post('/protect/:id', requireAuth, (req, res) => {
-    try { res.json(backup.setProtected(req.params.id, !!(req.body && req.body.protected))); }
+
+
+router.patch('/meta/:id', requireAuth, (req, res) => {
+    try { const r = backup.updateBackupMeta(req.params.id, req.body || {}); audit.write('backup.meta', { id: req.params.id, patch: req.body || {} }); res.json({ ok: true, backup: r }); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.get('/trash/list', requireAuth, (req, res) => {
+    try { const items = backup.listTrash(); res.json({ ok: true, count: items.length, backups: items }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/trash/stats', requireAuth, (req, res) => {
+    try { res.json(backup.trashStats()); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/trash/restore/:id', requireAuth, (req, res) => {
+    try { const r = backup.restoreTrash(req.params.id); audit.write('trash.restore', { id: req.params.id }); res.json(r); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/trash/delete/:id', requireAuth, (req, res) => {
+    if (!req.body || req.body.confirm !== 'DELETE') return res.status(400).json({ error: '永久删除需要输入 DELETE' });
+    try { const r = backup.deleteTrash(req.params.id, { forceProtected: !!req.body.forceProtected }); audit.write('trash.delete', { id: req.params.id, freedBytes: r.freedBytes }); res.json(r); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/trash/empty', requireAuth, (req, res) => {
+    if (!req.body || req.body.confirm !== 'EMPTY') return res.status(400).json({ error: '清空回收站需要输入 EMPTY' });
+    try { const r = backup.emptyTrash({ forceProtected: !!req.body.forceProtected }); audit.write('trash.empty', { deleted: r.deleted, skipped: r.skipped, freedBytes: r.freedBytes }); res.json(r); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/trash/cleanup', requireAuth, (req, res) => {
+    try { const r = backup.cleanupTrash(req.body && req.body.days); audit.write('trash.cleanup', r); res.json(r); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/scan/large-files', requireAuth, (req, res) => {
+    try { res.json(backup.scanLargeFiles(req.body && req.body.path, req.body && req.body.limit)); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.get('/recommended/excludes', requireAuth, (req, res) => {
+    try { res.json({ ok: true, excludes: backup.recommendedExcludes() }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/size/anomaly', requireAuth, (req, res) => {
+    try { res.json(backup.sizeAnomalyReport(req.body && req.body.sourceId, Number(req.body && req.body.currentSize || 0))); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/trash/:id', requireAuth, (req, res) => {
+    try { const r = backup.trashBackup(req.params.id); audit.write('trash.move', { id: req.params.id }); res.json(r); }
     catch (e) { res.status(400).json({ error: e.message }); }
 });
 

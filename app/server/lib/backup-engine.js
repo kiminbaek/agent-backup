@@ -376,10 +376,196 @@ function setProtected(id, value) {
     return { ok: true, id, protected: item.protected };
 }
 
+
+function updateBackupMeta(id, patch) {
+    const config = storage.loadConfig();
+    const meta = loadMeta(config);
+    const item = meta.backups.find(b => b.id === id);
+    if (!item) throw new Error(`备份不存在: ${id}`);
+    if (Object.prototype.hasOwnProperty.call(patch, 'note')) item.note = String(patch.note || '').slice(0, 500);
+    if (Array.isArray(patch.tags)) item.tags = patch.tags.map(x => String(x).trim()).filter(Boolean).slice(0, 20);
+    if (Object.prototype.hasOwnProperty.call(patch, 'displayName')) item.displayName = String(patch.displayName || '').slice(0, 120);
+    item.updatedAt = Date.now();
+    saveMeta(meta, config);
+    return storage.enrichBackup(item, config);
+}
+
+function listTrash() {
+    const config = storage.loadConfig();
+    return loadMeta(config).backups
+        .filter(b => b.status === 'trashed')
+        .slice()
+        .sort((a, b) => (b.trashedAt || b.timestamp || 0) - (a.trashedAt || a.timestamp || 0))
+        .map(b => storage.enrichBackup(b, config));
+}
+
+function trashStats() {
+    const items = listTrash();
+    let bytes = 0;
+    for (const b of items) {
+        const p = b.trashPath || b.archive;
+        try { if (p && fs.existsSync(p)) bytes += fs.statSync(p).size; } catch (_) { /* ignore */ }
+    }
+    return { ok: true, count: items.length, bytes, human: storage.humanSize(bytes), items };
+}
+
+function latestSuccessBySource(meta, sourceId) {
+    return meta.backups
+        .filter(b => b.sourceId === sourceId && b.status === 'success')
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0] || null;
+}
+
+function deleteWarnings(item, meta) {
+    const warnings = [];
+    if (item.protected) warnings.push('受保护备份');
+    const latest = latestSuccessBySource(meta, item.sourceId);
+    if (latest && latest.id === item.id) warnings.push('该来源最近一次成功备份');
+    const tags = Array.isArray(item.tags) ? item.tags : [];
+    if (tags.includes('重要') || tags.includes('升级前')) warnings.push('包含重要标签');
+    return warnings;
+}
+
+function restoreTrash(id) {
+    const config = storage.loadConfig();
+    const meta = loadMeta(config);
+    const item = meta.backups.find(b => b.id === id);
+    if (!item) throw new Error(`备份不存在: ${id}`);
+    if (item.status !== 'trashed') throw new Error('该备份不在回收站');
+    const src = item.trashPath || item.archive;
+    if (!src || !fs.existsSync(src)) throw new Error(`回收站文件丢失: ${src || ''}`);
+    const dest = item.archive || storage.archivePathFor(item.sourceId || 'restored', item.id, new Date(item.timestamp || Date.now()), config);
+    if (fs.existsSync(dest)) throw new Error(`恢复目标已存在: ${dest}`);
+    storage.ensureDir(path.dirname(dest), 0o700);
+    fs.renameSync(src, dest);
+    item.archive = dest;
+    item.path = dest;
+    item.trashPath = '';
+    item.status = 'success';
+    item.restoredFromTrashAt = Date.now();
+    saveMeta(meta, config);
+    return { ok: true, id, archive: dest };
+}
+
+function deleteTrash(id, opts) {
+    const config = storage.loadConfig();
+    const meta = loadMeta(config);
+    const item = meta.backups.find(b => b.id === id);
+    if (!item) throw new Error(`备份不存在: ${id}`);
+    if (item.status !== 'trashed') throw new Error('只能永久删除回收站里的备份');
+    const warnings = deleteWarnings(item, meta);
+    if (item.protected && !(opts && opts.forceProtected)) throw new Error('受保护备份不能永久删除，请先取消保护');
+    const p = item.trashPath || item.archive;
+    let freed = 0;
+    try { if (p && fs.existsSync(p)) freed = fs.statSync(p).size; } catch (_) { /* ignore */ }
+    if (p && fs.existsSync(p)) fs.rmSync(p, { force: true });
+    item.status = 'deleted';
+    item.deletedAt = Date.now();
+    item.deleteWarnings = warnings;
+    item.deletedArchive = p;
+    item.trashPath = '';
+    saveMeta(meta, config);
+    return { ok: true, id, freedBytes: freed, freedHuman: storage.humanSize(freed), warnings };
+}
+
+function emptyTrash(opts) {
+    const config = storage.loadConfig();
+    const meta = loadMeta(config);
+    const now = Date.now();
+    let deleted = 0, skipped = 0, failed = 0, freed = 0;
+    const details = [];
+    for (const item of meta.backups.filter(b => b.status === 'trashed')) {
+        if (item.protected && !(opts && opts.forceProtected)) { skipped++; details.push({ id: item.id, skipped: true, reason: 'protected' }); continue; }
+        const p = item.trashPath || item.archive;
+        try {
+            let size = 0;
+            if (p && fs.existsSync(p)) size = fs.statSync(p).size;
+            if (p && fs.existsSync(p)) fs.rmSync(p, { force: true });
+            freed += size;
+            deleted++;
+            item.status = 'deleted';
+            item.deletedAt = now;
+            item.deletedArchive = p;
+            item.trashPath = '';
+            details.push({ id: item.id, deleted: true, size });
+        } catch (e) {
+            failed++;
+            details.push({ id: item.id, failed: true, error: e.message });
+        }
+    }
+    saveMeta(meta, config);
+    return { ok: failed === 0, deleted, skipped, failed, freedBytes: freed, freedHuman: storage.humanSize(freed), details };
+}
+
+function cleanupTrash(days) {
+    const config = storage.loadConfig();
+    const trashDays = Number(days || (config.storage && config.storage.trashDays) || 7);
+    const cutoff = Date.now() - trashDays * 86400 * 1000;
+    const meta = loadMeta(config);
+    let deleted = 0, skipped = 0, freed = 0;
+    for (const item of meta.backups.filter(b => b.status === 'trashed')) {
+        if ((item.trashedAt || item.timestamp || 0) > cutoff) { skipped++; continue; }
+        if (item.protected) { skipped++; continue; }
+        const p = item.trashPath || item.archive;
+        try {
+            let size = 0;
+            if (p && fs.existsSync(p)) size = fs.statSync(p).size;
+            if (p && fs.existsSync(p)) fs.rmSync(p, { force: true });
+            freed += size;
+            deleted++;
+            item.status = 'deleted';
+            item.deletedAt = Date.now();
+            item.deletedArchive = p;
+            item.trashPath = '';
+        } catch (_) { skipped++; }
+    }
+    saveMeta(meta, config);
+    return { ok: true, trashDays, deleted, skipped, freedBytes: freed, freedHuman: storage.humanSize(freed) };
+}
+
+function scanLargeFiles(targetPath, limit) {
+    const max = Math.min(parseInt(limit, 10) || 20, 100);
+    const base = path.resolve(targetPath || '.');
+    const items = [];
+    function walk(dir) {
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (_) { return; }
+        for (const ent of entries) {
+            const p = path.join(dir, ent.name);
+            if (ent.isDirectory()) {
+                if (['node_modules', '.git', '.cache', 'tmp', 'logs', '__pycache__'].includes(ent.name)) continue;
+                walk(p);
+            } else if (ent.isFile()) {
+                try { const st = fs.statSync(p); items.push({ path: p, rel: path.relative(base, p), size: st.size, human: storage.humanSize(st.size) }); } catch (_) { /* ignore */ }
+            }
+        }
+    }
+    walk(base);
+    items.sort((a, b) => b.size - a.size);
+    return { ok: true, path: base, total: items.length, limit: max, files: items.slice(0, max) };
+}
+
+function recommendedExcludes() {
+    return ['node_modules', '.git', '.cache', 'tmp', 'logs', '*.log', '*.tmp', '.DS_Store', '__pycache__'];
+}
+
+function sizeAnomalyReport(sourceId, currentSize) {
+    const config = storage.loadConfig();
+    const meta = loadMeta(config);
+    const latest = meta.backups
+        .filter(b => b.sourceId === sourceId && b.status === 'success' && b.size > 0)
+        .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))[0];
+    if (!latest) return { ok: true, anomalous: false, reason: 'no-history' };
+    const ratio = Number(config.alert && config.alert.sizeGrowthRatio || 3);
+    const growth = currentSize / latest.size;
+    return { ok: true, anomalous: growth >= ratio, ratio, growth, previousSize: latest.size, previousHuman: storage.humanSize(latest.size), currentSize, currentHuman: storage.humanSize(currentSize), latestId: latest.id };
+}
+
 module.exports = {
     CONFIG_FILE, STATUS_FILE,
     loadMeta, saveMeta, sha256File, run,
     precheck, runBackup, backupOne, applyRetention,
     listBackups, getBackup, verifyBackup, listArchiveFiles,
-    importArchive, trashBackup, setProtected
+    importArchive, trashBackup, setProtected, updateBackupMeta,
+    listTrash, trashStats, restoreTrash, deleteTrash, emptyTrash, cleanupTrash,
+    scanLargeFiles, recommendedExcludes, sizeAnomalyReport
 };

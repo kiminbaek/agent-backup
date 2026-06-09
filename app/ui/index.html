@@ -337,8 +337,11 @@ tr:hover { background: #f8f9fa; }
     <div class="tab" data-tab="config" onclick="switchTab('config')">配置</div>
     <div class="tab" data-tab="history" onclick="switchTab('history')">历史</div>
     <div class="tab" data-tab="files" onclick="switchTab('files')">备份文件</div>
+    <div class="tab" data-tab="trash" onclick="switchTab('trash')">回收站</div>
     <div class="tab" data-tab="storage" onclick="switchTab('storage')">存储</div>
     <div class="tab" data-tab="notify" onclick="switchTab('notify')">通知</div>
+    <div class="tab" data-tab="audit" onclick="switchTab('audit')">审计</div>
+    <div class="tab" data-tab="tools" onclick="switchTab('tools')">工具</div>
     <div class="tab" data-tab="log" onclick="switchTab('log')">日志</div>
 </nav>
 
@@ -444,7 +447,8 @@ tr:hover { background: #f8f9fa; }
             <button class="btn btn-secondary" onclick="runPrecheck()">备份前体检</button>
             <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">导入 .tar.zst</button>
             <input type="file" id="import-file" accept=".zst" style="display:none" onchange="importBackupFile(this.files[0])">
-            <input type="text" id="backup-search" placeholder="搜索 ID/来源/路径/sha256" oninput="renderBackupFiles()" style="max-width:280px;">
+            <select id="backup-status-filter" onchange="renderBackupFiles()" style="max-width:160px;"><option value="">全部状态</option><option value="success">正常</option><option value="trashed">回收站</option><option value="deleted">已删除记录</option><option value="failed">失败</option></select>
+            <input type="text" id="backup-search" placeholder="搜索 ID/来源/路径/sha256/备注/标签" oninput="renderBackupFiles()" style="max-width:280px;">
         </div>
         <div id="precheck-result" class="hint"></div>
         <div style="overflow-x:auto;">
@@ -452,6 +456,25 @@ tr:hover { background: #f8f9fa; }
                 <thead><tr><th>状态</th><th>时间</th><th>来源</th><th>文件</th><th>大小</th><th>SHA-256</th><th>操作</th></tr></thead>
                 <tbody><tr><td colspan="7" class="empty">点击刷新加载</td></tr></tbody>
             </table>
+        </div>
+    </div>
+</div>
+
+
+
+<!-- Tab: 回收站 -->
+<div id="tab-trash" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>回收站</h2>
+        <p class="hint">回收站里的备份可恢复，也可永久删除。永久删除不可逆。</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn" onclick="loadTrash()">刷新</button>
+            <button class="btn btn-secondary" onclick="cleanupTrash()">清理过期</button>
+            <button class="btn btn-danger" onclick="emptyTrash()">清空回收站</button>
+        </div>
+        <div id="trash-stats" class="hint">点击刷新加载</div>
+        <div style="overflow-x:auto;">
+            <table id="trash-table"><thead><tr><th>时间</th><th>来源</th><th>文件</th><th>大小</th><th>操作</th></tr></thead><tbody><tr><td colspan="5" class="empty">点击刷新加载</td></tr></tbody></table>
         </div>
     </div>
 </div>
@@ -486,6 +509,37 @@ tr:hover { background: #f8f9fa; }
             <input type="text" id="notify-message" placeholder="[Agent 备份] 测试消息" value="[Agent 备份] 测试通知">
         </div>
         <button class="btn" onclick="testNotify()">发送测试</button>
+    </div>
+</div>
+
+
+
+<!-- Tab: 审计 -->
+<div id="tab-audit" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>操作审计</h2>
+        <p class="hint">记录删除、恢复、清空回收站、修改配置等危险操作。</p>
+        <button class="btn" onclick="loadAudit()">刷新审计日志</button>
+        <pre id="audit-container" style="background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:6px;max-height:600px;overflow:auto;font-size:12px;margin-top:12px;">点击刷新加载</pre>
+    </div>
+</div>
+
+<!-- Tab: 工具 -->
+<div id="tab-tools" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>备份模板 / 一键推荐</h2>
+        <p class="hint">可查看内置备份源模板，或生成推荐配置后手动保存。</p>
+        <button class="btn btn-secondary" onclick="loadTemplates()">加载模板</button>
+        <button class="btn" onclick="applyRecommendedConfig()">应用推荐配置到编辑区</button>
+        <pre id="templates-box" style="background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;margin-top:12px;">点击加载模板</pre>
+    </div>
+    <div class="section">
+        <h2>大文件扫描 / 推荐排除</h2>
+        <p class="hint">备份前扫描最大文件，避免日志、缓存被误打包。</p>
+        <div class="form-group"><label>扫描路径</label><input type="text" id="scan-path" placeholder="/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/"></div>
+        <button class="btn" onclick="scanLargeFiles()">扫描 Top 20</button>
+        <button class="btn btn-secondary" onclick="loadRecommendedExcludes()">推荐排除规则</button>
+        <pre id="scan-box" style="background:#f6f8fa;padding:10px;max-height:360px;overflow:auto;margin-top:12px;">等待操作</pre>
     </div>
 </div>
 
@@ -1114,14 +1168,15 @@ function renderBackupFiles() {
     const tbody = document.querySelector('#files-table tbody');
     if (!tbody) return;
     const q = (document.getElementById('backup-search') && document.getElementById('backup-search').value || '').toLowerCase();
-    const list = backupFilesCache.filter(b => !q || JSON.stringify(b).toLowerCase().includes(q));
+    const f = (document.getElementById('backup-status-filter') && document.getElementById('backup-status-filter').value || '');
+    const list = backupFilesCache.filter(b => (!f || b.status === f || (f === 'success' && b.health === 'ok')) && (!q || JSON.stringify(b).toLowerCase().includes(q)));
     if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="7" class="empty">暂无备份文件</td></tr>'; return; }
     tbody.innerHTML = list.map(b => `
         <tr>
             <td>${healthLabel(b)}${b.protected ? '<br>⭐ 保护' : ''}</td>
             <td>${formatTime(b.timestamp)}</td>
             <td>${escapeHtml(b.sourceName || b.sourceId || '')}<br><small>${escapeHtml(b.sourcePath || '')}</small></td>
-            <td><code style="font-size:11px;">${escapeHtml(b.filename || '')}</code></td>
+            <td><code style="font-size:11px;">${escapeHtml(b.filename || '')}</code>${b.note ? '<br><small>备注：' + escapeHtml(b.note) + '</small>' : ''}${Array.isArray(b.tags) && b.tags.length ? '<br><small>标签：' + b.tags.map(escapeHtml).join(', ') + '</small>' : ''}</td>
             <td>${escapeHtml(b.sizeHuman || formatSize(b.size || 0))}</td>
             <td><code style="font-size:11px;">${(b.sha256 || '').slice(0, 12)}...</code></td>
             <td style="white-space:nowrap;">
@@ -1129,6 +1184,7 @@ function renderBackupFiles() {
                 <button class="btn btn-sm btn-secondary" onclick="downloadBackup('${b.id}')">下载</button>
                 <button class="btn btn-sm btn-secondary" onclick="verifyBackup('${b.id}')">校验</button>
                 <button class="btn btn-sm btn-secondary" onclick="previewRestore('${b.id}')">预览恢复</button>
+                <button class="btn btn-sm btn-secondary" onclick="editBackupMeta('${b.id}')">备注/标签</button>
                 <button class="btn btn-sm btn-secondary" onclick="protectBackup('${b.id}', ${!b.protected})">${b.protected ? '取消保护' : '保护'}</button>
                 <button class="btn btn-sm btn-danger" onclick="trashBackup('${b.id}')">回收</button>
             </td>
@@ -1184,6 +1240,7 @@ async function previewRestore(id) {
     if (!res || !res.ok) return;
     showModalHtml('恢复预览', `
         <p>目标路径：<code>${escapeHtml(target)}</code></p>
+        <p>风险等级：<b>${escapeHtml(res.risk && res.risk.level || '')}</b> - ${escapeHtml(res.risk && res.risk.message || '')}</p>
         <p>新增：${res.added}，覆盖/更新：${res.updated}，删除：${res.deleted}，总变更：${res.total}</p>
         <pre style="background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;">${escapeHtml((res.lines || []).join('\n'))}</pre>
         <button class="btn btn-danger" onclick="executeRestore('${id}', '${escapeHtml(target)}')">确认恢复</button>
@@ -1338,6 +1395,101 @@ window.addEventListener('unhandledrejection', (e) => {
     console.error('[UI promise error]', e.reason);
     showToast('异步错误: ' + (e.reason && e.reason.message || e.reason || '未知'), 'error');
 });
+
+// ============ v1.1.3 回收站 / 审计 / 工具 / 备注标签 ============
+async function editBackupMeta(id) {
+    const b = backupFilesCache.find(x => x.id === id) || {};
+    const note = prompt('备注（最多 500 字）', b.note || '');
+    if (note === null) return;
+    const tagsText = prompt('标签，逗号分隔，例如：重要,升级前,手动', Array.isArray(b.tags) ? b.tags.join(',') : '');
+    if (tagsText === null) return;
+    const tags = tagsText.split(',').map(x => x.trim()).filter(Boolean);
+    const res = await apiCall('PATCH', '/api/backup/meta/' + encodeURIComponent(id), { note, tags });
+    if (res && res.ok) { showToast('备注/标签已保存', 'success'); loadBackupFiles(); }
+}
+
+async function loadTrash() {
+    const stats = await apiCall('GET', '/api/backup/trash/stats');
+    const tbody = document.querySelector('#trash-table tbody');
+    if (!stats || !tbody) return;
+    document.getElementById('trash-stats').innerHTML = `回收站：${stats.count} 个，占用 ${escapeHtml(stats.human || '')}`;
+    const list = stats.items || [];
+    if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="5" class="empty">回收站为空</td></tr>'; return; }
+    tbody.innerHTML = list.map(b => `
+        <tr>
+            <td>${formatTime(b.trashedAt || b.timestamp)}</td>
+            <td>${escapeHtml(b.sourceName || b.sourceId || '')}</td>
+            <td><code style="font-size:11px;">${escapeHtml(b.filename || b.id)}</code>${b.protected ? '<br>⭐ 保护' : ''}</td>
+            <td>${escapeHtml(b.sizeHuman || formatSize(b.size || 0))}</td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-sm btn-secondary" onclick="restoreTrash('${b.id}')">恢复</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteTrash('${b.id}')">永久删除</button>
+            </td>
+        </tr>`).join('');
+}
+
+async function restoreTrash(id) {
+    showConfirm('恢复回收站备份', '确认把该备份从回收站恢复到原归档路径？', async () => {
+        const res = await apiCall('POST', '/api/backup/trash/restore/' + encodeURIComponent(id));
+        if (res && res.ok) { showToast('已恢复', 'success'); loadTrash(); loadBackupFiles(); }
+    });
+}
+
+async function deleteTrash(id) {
+    const confirmText = prompt('永久删除不可恢复。请输入 DELETE 确认：');
+    if (confirmText !== 'DELETE') return;
+    const res = await apiCall('POST', '/api/backup/trash/delete/' + encodeURIComponent(id), { confirm: 'DELETE' });
+    if (res && res.ok) { showToast('已永久删除，释放 ' + (res.freedHuman || ''), 'success'); loadTrash(); loadBackupFiles(); }
+}
+
+async function emptyTrash() {
+    const confirmText = prompt('清空回收站不可恢复。请输入 EMPTY 确认：');
+    if (confirmText !== 'EMPTY') return;
+    const res = await apiCall('POST', '/api/backup/trash/empty', { confirm: 'EMPTY' });
+    if (res && res.ok) { showToast(`已清空：删除 ${res.deleted} 个，释放 ${res.freedHuman}`, 'success'); loadTrash(); loadBackupFiles(); }
+}
+
+async function cleanupTrash() {
+    const res = await apiCall('POST', '/api/backup/trash/cleanup', {});
+    if (res && res.ok) { showToast(`已清理过期回收站：${res.deleted} 个`, 'success'); loadTrash(); loadBackupFiles(); }
+}
+
+async function loadAudit() {
+    const res = await apiCall('GET', '/api/audit/list?limit=200');
+    const box = document.getElementById('audit-container');
+    if (!box) return;
+    box.textContent = res && res.logs ? res.logs.map(x => `[${x.time || ''}] ${x.action || ''} ${JSON.stringify(x.detail || {})}`).join('\n') : '加载失败';
+}
+
+async function loadTemplates() {
+    const res = await apiCall('GET', '/api/config/templates');
+    document.getElementById('templates-box').textContent = JSON.stringify(res && res.templates || [], null, 2);
+}
+
+async function applyRecommendedConfig() {
+    const res = await apiCall('GET', '/api/config/recommended');
+    if (!res || !res.config) return;
+    currentConfig = res.config;
+    renderConfigSources();
+    document.getElementById('cron-schedule').value = res.config.schedule && res.config.schedule.cron || '0 3 * * *';
+    showToast('推荐配置已加载到配置页，确认后请点保存配置', 'success');
+    switchTab('config');
+}
+
+async function scanLargeFiles() {
+    const path = document.getElementById('scan-path').value;
+    if (!path) { showToast('请输入扫描路径', 'error'); return; }
+    const res = await apiCall('POST', '/api/backup/scan/large-files', { path, limit: 20 });
+    const box = document.getElementById('scan-box');
+    if (!box) return;
+    box.textContent = res && res.files ? res.files.map((f, i) => `${i + 1}. ${f.human}\t${f.rel || f.path}`).join('\n') : '扫描失败';
+}
+
+async function loadRecommendedExcludes() {
+    const res = await apiCall('GET', '/api/backup/recommended/excludes');
+    document.getElementById('scan-box').textContent = (res && res.excludes || []).join('\n');
+}
+
 </script>
 
 </body>
