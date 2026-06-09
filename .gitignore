@@ -1,0 +1,29 @@
+# build / 临时
+app.tgz
+app.tgz.*
+manifest.bak.*
+*.bak.*
+*.intermediate
+*.old
+
+# node_modules（ab-prebuild 中已预打包，不在 source 中）
+node_modules/
+*/node_modules/
+
+# 系统
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+*.tmp
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# fnpack build dir（如果有）
+*-build/
+*/build/

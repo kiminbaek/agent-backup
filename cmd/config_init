@@ -1,0 +1,14 @@
+#!/bin/bash
+# config_init：配置前初始化（fnnOS 7.x 新版配置流程）
+set -e
+
+APP_NAME="com.dustinky.agentbackup"
+APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
+LOG_DIR="${APP_DATA_DIR}/logs"
+SERVER_LOG="${LOG_DIR}/server.log"
+
+mkdir -p "${LOG_DIR}" 2>/dev/null || true
+touch "${SERVER_LOG}" 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] config_init: 配置前初始化" | tee -a "${SERVER_LOG}"
+exit 0

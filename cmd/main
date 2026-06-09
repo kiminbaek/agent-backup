@@ -1,0 +1,332 @@
+#!/bin/bash
+# Agent 备份 cmd/main 入口脚本
+# 飞牛 fnOS 应用生命周期入口（TRIM_APP_STATUS 环境变量触发）
+# 5 件套：start / stop / restart / setup / status
+# 关键：pkill 全覆盖（M150）+ 状态机同步（M99/M100）
+
+set -e
+
+# ============ 常量 ============
+APP_NAME="com.dustinky.agentbackup"
+# v1.0.11 修复：fnOS 装机时 TRIM_APPDEST = /vol3/@appcenter/<appname>（不是 /var/apps/...）
+APP_DIR="${TRIM_APPDEST:-/vol3/@appcenter/${APP_NAME}}"
+APP_INSTALL_DIR="${TRIM_APPDEST:-/vol3/@appcenter/${APP_NAME}}"
+APP_DATA_DIR="${TRIM_PKGVAR:-/vol3/@appdata/${APP_NAME}}"
+SERVER_DIR="${APP_DIR}/server"           # v1.0.11 新增：服务目录（必须用 TRIM_APPDEST）
+SERVER_ENTRY="${SERVER_DIR}/server.js"   # v1.0.11 修复：直接指向 ${SERVER_DIR}
+LOG_DIR="${APP_DATA_DIR}/logs"
+SERVER_LOG="${LOG_DIR}/server.log"
+BACKUP_LOG="${LOG_DIR}/backup.log"
+PID_FILE="${APP_DATA_DIR}/server.pid"
+NODE_BIN="/var/apps/nodejs_v22/target/bin/node"
+SERVICE_PORT=12083
+
+# Node.js 运行时（fnOS 系统依赖装在固定路径，M186 npm PATH）
+export PATH="/var/apps/nodejs_v22/target/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+# 数据库同步（M99）
+DB_USER="postgres"
+DB_NAME="appcenter"
+
+# ============ 日志函数 ============
+log() {
+    local level=$1
+    local msg=$2
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [${level}] ${msg}" | tee -a "${SERVER_LOG}"
+}
+
+# ============ 进程清理（M150 5 处 pkill 第 1 处）============
+cleanup_orphan_processes() {
+    log "INFO" "清理孤儿进程（M150）"
+
+    # pkill node server.js
+    pkill -9 -f "node.*${APP_NAME}.*server" 2>/dev/null || true
+
+    # pkill 端口占用
+    fuser -k -9 "${SERVICE_PORT}/tcp" 2>/dev/null || true
+
+    # pkill node 进程按 cmdline
+    for pid in $(pgrep -f "node.*${APP_NAME}" 2>/dev/null); do
+        kill -9 "$pid" 2>/dev/null || true
+    done
+
+    # 删除 pid 文件
+    rm -f "${PID_FILE}" 2>/dev/null || true
+
+    sleep 1
+}
+
+# ============ 状态机同步（M99/M100）============
+sync_appcenter_status() {
+    local target_status=$1
+    log "INFO" "同步 appcenter 状态 → ${target_status}"
+
+    # 状态值映射
+    local db_status="${target_status}"
+    # is_stop 语义：t = 运行中可停止，f = 已停止（xray-proxy 也是 t+running）
+    local db_is_stop="true"
+    [[ "${target_status}" == "stopped" ]] && db_is_stop="false"
+
+    # 用 sudo -u postgres 切换到 postgres 用户更新 DB
+    sudo -u "${DB_USER}" psql -d "${DB_NAME}" -c \
+        "UPDATE app SET status='${db_status}', is_stop='${db_is_stop}' WHERE app_name='${APP_NAME}';" \
+        2>&1 | tee -a "${SERVER_LOG}" || log "WARN" "DB 同步失败（非阻塞）"
+}
+
+# ============ setup 函数（首次安装初始化）============
+setup() {
+    log "INFO" "==== setup 开始 ===="
+
+    # 创建目录
+    mkdir -p "${APP_DATA_DIR}"
+    mkdir -p "${LOG_DIR}"
+    mkdir -p "${APP_DATA_DIR}/backups"
+    mkdir -p "${APP_DATA_DIR}/config"
+    mkdir -p "${APP_DATA_DIR}/tmp"
+
+    # 设置权限（root 拥有）
+    chown -R root:root "${APP_DATA_DIR}" 2>/dev/null || true
+    chmod 700 "${APP_DATA_DIR}"
+    chmod 700 "${APP_DATA_DIR}/backups"
+
+    # 初始化 auth.json（首次装机）
+    if [ ! -f "${APP_DATA_DIR}/auth.json" ]; then
+        log "INFO" "初始化 auth.json（首次安装）"
+        # v1.0.16 改：首次装机不写默认密码，要求用户首次登录时通过 /api/auth/setup 设置密码
+        cd "${SERVER_DIR}"
+        "${NODE_BIN}" -e "
+const crypto = require('crypto');
+const fs = require('fs');
+const auth = {
+    passwordHash: null,
+    token: crypto.randomBytes(32).toString('hex'),
+    failedAttempts: 0,
+    lockUntil: 0,
+    needsPasswordSetup: true,
+    scryptOptsVersion: 4
+};
+fs.writeFileSync('${APP_DATA_DIR}/auth.json', JSON.stringify(auth, null, 2));
+console.log('auth.json initialized: needsPasswordSetup=true, token=' + auth.token);
+" 2>&1 | tee -a "${SERVER_LOG}"
+        chmod 600 "${APP_DATA_DIR}/auth.json"
+    fi
+
+    # 初始化 config.json
+    if [ ! -f "${APP_DATA_DIR}/config/config.json" ]; then
+        log "INFO" "初始化 config/config.json"
+        cat > "${APP_DATA_DIR}/config/config.json" << 'EOF'
+{
+  "sources": [
+    {
+      "id": "src-001",
+      "name": "默认备份源（示例）",
+      "path": "/vol3/1000/nas",
+      "enabled": false,
+      "include": ["*.md", "*.json", "*.txt"],
+      "exclude": ["node_modules", ".git", "*.log", "*.tmp"]
+    }
+  ],
+  "schedule": "0 3 * * *",
+  "retention": {
+    "days": 30,
+    "warnRatio": 1.5
+  },
+  "notify": {
+    "qq": { "url": "" },
+    "feiniu": { "url": "" },
+    "email": { "smtp": "", "user": "" }
+  }
+}
+EOF
+        chmod 600 "${APP_DATA_DIR}/config/config.json"
+    fi
+
+    log "INFO" "==== setup 完成 ===="
+}
+
+# ============ install_deps 函数（v2 - 预打包 node_modules）============
+# v1.0.10 改：fpk 内预打包 node_modules，cmd/main 只校验完整性
+# 原因：npm 10.9.3 @npmcli/arborist Tracker "idealTree" already exists 错误
+#       在 fnOS 装机环境下无法稳定触发，改为预打包（M188）
+install_deps() {
+    # 检查 node_modules 是否存在
+    if [ ! -d "${SERVER_DIR}/node_modules" ]; then
+        log "ERROR" "node_modules 缺失！fpk 应预打包依赖，**请**联**系**开**发**者**"
+        return 1
+    fi
+
+    # 检查关键依赖（express）是否在
+    if [ ! -d "${SERVER_DIR}/node_modules/express" ]; then
+        log "ERROR" "express 依赖缺失，fpk 不完整"
+        return 1
+    fi
+
+    if [ ! -d "${SERVER_DIR}/node_modules/node-cron" ]; then
+        log "ERROR" "node-cron 依赖缺失，fpk 不完整"
+        return 1
+    fi
+
+    log "INFO" "node_modules 预打包就绪（express + node-cron），跳过 npm install"
+    return 0
+}
+
+# ============ start 函数 ============
+start() {
+    log "INFO" "==== start 开始 ===="
+
+    # 第 1 步：pkill 旧进程（M150）
+    cleanup_orphan_processes
+
+    # 第 2 步：setup（首次安装）
+    if [ ! -f "${APP_DATA_DIR}/auth.json" ]; then
+        setup
+    fi
+
+    # 第 3 步：装依赖（M186 新增，v1.0.4 修复启动失败）
+    if ! install_deps; then
+        log "ERROR" "依**赖**装**不**上**，**启**动**失**败**"
+        sync_appcenter_status "stopped"
+        return 1
+    fi
+
+    # 第 4 步：检查端口占用
+    if fuser "${SERVICE_PORT}/tcp" 2>/dev/null; then
+        log "WARN" "端口 ${SERVICE_PORT} 已被占用，尝试清理"
+        fuser -k -9 "${SERVICE_PORT}/tcp" 2>/dev/null || true
+        sleep 2
+    fi
+
+    # 第 5 步：启动 node server
+    log "INFO" "启动 Node.js server: ${SERVER_ENTRY}"
+    cd "${SERVER_DIR}"
+
+    # 用 nohup + & 启动，输出到 log
+    nohup "${NODE_BIN}" server.js > "${SERVER_LOG}" 2>&1 &
+    local pid=$!
+    echo "${pid}" > "${PID_FILE}"
+    log "INFO" "Node.js PID=${pid}，已写入 ${PID_FILE}"
+
+    # 第 5 步：等待启动验证
+    sleep 3
+    if ! kill -0 "${pid}" 2>/dev/null; then
+        log "ERROR" "Node.js 进程已退出，请查看 ${SERVER_LOG}"
+        sync_appcenter_status "stopped"
+        return 1
+    fi
+
+    # 第 6 步：健康检查
+    if curl -sf "http://127.0.0.1:${SERVICE_PORT}/api/health" > /dev/null 2>&1; then
+        log "INFO" "健康检查通过（端口 ${SERVICE_PORT}）"
+    else
+        log "WARN" "健康检查失败（不影响启动，UI 可能在初始化）"
+    fi
+
+    # 第 7 步：同步状态机（M99/M100 治本）
+    sync_appcenter_status "running"
+
+    log "INFO" "==== start 完成 ===="
+}
+
+# ============ stop 函数 ============
+stop() {
+    log "INFO" "==== stop 开始 ===="
+
+    # pkill 主进程
+    if [ -f "${PID_FILE}" ]; then
+        local pid
+        pid=$(cat "${PID_FILE}")
+        if kill -0 "${pid}" 2>/dev/null; then
+            log "INFO" "SIGTERM → PID=${pid}"
+            kill -TERM "${pid}" 2>/dev/null || true
+            sleep 3
+            # 5 秒后还没退，强制 SIGKILL
+            if kill -0 "${pid}" 2>/dev/null; then
+                log "WARN" "SIGTERM 未响应，升级到 SIGKILL"
+                kill -9 "${pid}" 2>/dev/null || true
+            fi
+        fi
+    fi
+
+    # 收尾 pkill（M150 第 2 处）
+    cleanup_orphan_processes
+
+    # 同步状态机
+    sync_appcenter_status "stopped"
+
+    log "INFO" "==== stop 完成 ===="
+}
+
+# ============ restart 函数 ============
+restart() {
+    log "INFO" "==== restart 开始 ===="
+    stop
+    sleep 2
+    start
+    log "INFO" "==== restart 完成 ===="
+}
+
+# ============ status 函数（M107 必填）============
+status() {
+    if [ -f "${PID_FILE}" ]; then
+        local pid
+        pid=$(cat "${PID_FILE}")
+        if kill -0 "${pid}" 2>/dev/null; then
+            echo "running"
+            return 0
+        fi
+    fi
+    # 兜底：检查端口
+    if fuser "${SERVICE_PORT}/tcp" 2>/dev/null; then
+        echo "running"
+        return 0
+    fi
+    echo "stopped"
+    return 0
+}
+
+# ============ 入口（TRIM_APP_STATUS）============
+main() {
+    # 创建日志目录（首次启动时）
+    mkdir -p "${LOG_DIR}" 2>/dev/null || true
+    touch "${SERVER_LOG}" 2>/dev/null || true
+
+    # 从环境变量读取状态
+    local status="${TRIM_APP_STATUS:-}"
+
+    case "${status}" in
+        INSTALL)
+            log "INFO" "进入 INSTALL 流程"
+            setup
+            sync_appcenter_status "start"
+            ;;
+        START)
+            log "INFO" "进入 START 流程"
+            start
+            ;;
+        STOP)
+            log "INFO" "进入 STOP 流程"
+            stop
+            ;;
+        UNINSTALL)
+            log "INFO" "进入 UNINSTALL 流程（不删除 backups/）"
+            stop
+            ;;
+        *)
+            # 兼容命令行调用：./main start | stop | restart | setup | status
+            case "${1:-}" in
+                start)   start ;;
+                stop)    stop ;;
+                restart) restart ;;
+                setup)   setup ;;
+                status)  status ;;
+                *)
+                    echo "用法: $0 {start|stop|restart|setup|status}"
+                    echo "  或: TRIM_APP_STATUS={INSTALL|START|STOP|UNINSTALL} $0"
+                    exit 1
+                    ;;
+            esac
+            ;;
+    esac
+}
+
+main "$@"

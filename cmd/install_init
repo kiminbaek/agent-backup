@@ -1,0 +1,26 @@
+#!/bin/bash
+# install_init：安装前初始化（创建用户、组、目录）
+set -e
+
+APP_NAME="com.dustinky.agentbackup"
+APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
+
+# 创建用户（如果不存在）
+if ! id "agent_backup" >/dev/null 2>&1; then
+    useradd -r -s /bin/false agent_backup 2>/dev/null || true
+fi
+
+# 创建数据目录
+mkdir -p "${APP_DATA_DIR}"
+mkdir -p "${APP_DATA_DIR}/backups"
+mkdir -p "${APP_DATA_DIR}/logs"
+mkdir -p "${APP_DATA_DIR}/config"
+mkdir -p "${APP_DATA_DIR}/tmp"
+
+# 设置权限
+chown -R root:root "${APP_DATA_DIR}" 2>/dev/null || true
+chmod 700 "${APP_DATA_DIR}"
+chmod 700 "${APP_DATA_DIR}/backups"
+
+echo "[install_init] OK"
+exit 0

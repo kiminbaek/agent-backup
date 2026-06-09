@@ -1,0 +1,19 @@
+{
+  "name": "agent-backup",
+  "version": "1.0.19",
+  "description": "Agent 备份 - fnOS 定时备份应用",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --check server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "author": "黄元亮",
+  "license": "Apache-2.0"
+}

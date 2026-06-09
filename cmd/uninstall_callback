@@ -1,0 +1,26 @@
+#!/bin/bash
+# uninstall_callback：卸载后回调（不删 backups/）
+set -e
+
+APP_NAME="com.dustinky.agentbackup"
+APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
+SERVICE_PORT=12083
+LOG_DIR="${APP_DATA_DIR}/logs"
+SERVER_LOG="${LOG_DIR}/server.log"
+
+mkdir -p "${LOG_DIR}" 2>/dev/null || true
+touch "${SERVER_LOG}" 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] uninstall_callback: 卸载后清理" | tee -a "${SERVER_LOG}"
+
+# 停服（pkill 兜底）
+pkill -9 -f "node.*${APP_NAME}.*server" 2>/dev/null || true
+fuser -k -9 "${SERVICE_PORT}/tcp" 2>/dev/null || true
+
+# ⚠️ 重要：不删除 ${APP_DATA_DIR}/backups/（M150 卸载保护）
+# 用户主动卸载后，备份数据保留，由用户手动清理
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] backups/ 已保留在: ${APP_DATA_DIR}/backups/" | tee -a "${SERVER_LOG}"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] 手动清理: rm -rf ${APP_DATA_DIR}" | tee -a "${SERVER_LOG}"
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] uninstall_callback: OK" | tee -a "${SERVER_LOG}"
+exit 0

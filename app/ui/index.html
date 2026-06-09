@@ -1,0 +1,983 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent 备份 - 控制台</title>
+<style>
+/* ============ 全局 ============ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+    background: #f5f5f7;
+    color: #202124;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+a { color: #1a73e8; text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ============ 顶栏 ============ */
+.header {
+    background: linear-gradient(135deg, #1a73e8, #4285f4);
+    color: #fff;
+    padding: 20px 32px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.header h1 {
+    font-size: 22px;
+    font-weight: 600;
+}
+.header .actions { display: flex; gap: 12px; }
+.header .actions button {
+    background: rgba(255,255,255,0.15);
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.3);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.2s;
+}
+.header .actions button:hover {
+    background: rgba(255,255,255,0.25);
+}
+
+/* ============ Tabs ============ */
+.tabs {
+    background: #fff;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 0 32px;
+    display: flex;
+    gap: 4px;
+}
+.tab {
+    padding: 14px 20px;
+    cursor: pointer;
+    border-bottom: 3px solid transparent;
+    color: #5f6368;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.tab:hover { color: #1a73e8; }
+.tab.active {
+    color: #1a73e8;
+    border-bottom-color: #1a73e8;
+}
+
+/* ============ 主体 ============ */
+.main {
+    max-width: 1200px;
+    margin: 24px auto;
+    padding: 0 24px;
+}
+.section {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    margin-bottom: 20px;
+}
+.section h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 16px;
+    color: #202124;
+}
+.section .hint {
+    color: #5f6368;
+    font-size: 13px;
+    margin-bottom: 16px;
+}
+
+/* ============ 卡片 / 列表 ============ */
+.source-list { display: grid; gap: 12px; }
+.source-card {
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+}
+.source-card:hover { border-color: #1a73e8; }
+.source-info h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.source-info p { font-size: 13px; color: #5f6368; }
+.source-actions { display: flex; gap: 8px; align-items: center; }
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 40px;
+    height: 22px;
+}
+.switch input { display: none; }
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #ccc;
+    border-radius: 22px;
+    transition: 0.3s;
+}
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 3px;
+    background-color: #fff;
+    border-radius: 50%;
+    transition: 0.3s;
+}
+input:checked + .slider { background-color: #1a73e8; }
+input:checked + .slider:before { transform: translateX(18px); }
+
+/* ============ 按钮 ============ */
+.btn {
+    background: #1a73e8;
+    color: #fff;
+    border: none;
+    padding: 8px 18px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    transition: background 0.2s;
+}
+.btn:hover { background: #1557b0; }
+.btn:disabled { background: #ccc; cursor: not-allowed; }
+.btn-secondary {
+    background: #fff;
+    color: #1a73e8;
+    border: 1px solid #1a73e8;
+}
+.btn-secondary:hover { background: #f0f7ff; }
+.btn-danger { background: #d93025; }
+.btn-danger:hover { background: #a52714; }
+.btn-sm { padding: 4px 12px; font-size: 12px; }
+
+/* ============ 进度条（v1.0.17）============ */
+.progress-bar {
+    width: 100%;
+    height: 12px;
+    background: #e8eaed;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 8px;
+}
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #1a73e8, #4285f4);
+    transition: width 0.3s ease;
+    border-radius: 6px;
+}
+
+/* ============ 日志框（v1.0.17）============ */
+#log-container {
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* ============ 表单 ============ */
+.form-group { margin-bottom: 16px; }
+.form-group label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: #5f6368;
+}
+.form-group input, .form-group select, .form-group textarea {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #dadce0;
+    border-radius: 4px;
+    font-size: 14px;
+    font-family: inherit;
+}
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+    outline: none;
+    border-color: #1a73e8;
+}
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* ============ 表格 ============ */
+table { width: 100%; border-collapse: collapse; }
+th, td {
+    padding: 10px 12px;
+    text-align: left;
+    border-bottom: 1px solid #e0e0e0;
+    font-size: 13px;
+}
+th {
+    background: #f8f9fa;
+    font-weight: 600;
+    color: #5f6368;
+}
+tr:hover { background: #f8f9fa; }
+
+/* ============ Modal ============ */
+.modal-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+}
+.modal-overlay.show { display: flex; }
+.modal {
+    background: #fff;
+    border-radius: 8px;
+    padding: 24px;
+    width: 90%;
+    max-width: 420px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+}
+.modal h3 { font-size: 18px; margin-bottom: 16px; }
+.modal p { color: #5f6368; margin-bottom: 16px; font-size: 14px; }
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+/* ============ 通知 ============ */
+.toast {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 12px 20px;
+    border-radius: 6px;
+    color: #fff;
+    z-index: 200;
+    font-size: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    animation: slideIn 0.3s ease-out;
+}
+.toast.success { background: #0f9d58; }
+.toast.error { background: #d93025; }
+.toast.info { background: #1a73e8; }
+@keyframes slideIn {
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
+}
+
+/* ============ 状态徽章 ============ */
+.badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+}
+.badge.success { background: #e6f4ea; color: #0f9d58; }
+.badge.failed { background: #fce8e6; color: #d93025; }
+.badge.warn { background: #fef7e0; color: #f9ab00; }
+
+/* ============ 响应式 ============ */
+@media (max-width: 768px) {
+    .header { padding: 16px 20px; flex-wrap: wrap; }
+    .header h1 { font-size: 18px; }
+    .tabs { padding: 0 16px; overflow-x: auto; }
+    .main { padding: 0 16px; }
+    .section { padding: 16px; }
+    .form-row { grid-template-columns: 1fr; }
+    .source-card { flex-direction: column; align-items: flex-start; gap: 12px; }
+    table { font-size: 12px; }
+    th, td { padding: 8px 6px; }
+}
+
+/* ============ Loading ============ */
+.loading {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ============ 空状态 ============ */
+.empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: #9aa0a6;
+    font-size: 14px;
+}
+</style>
+</head>
+<body>
+
+<!-- 顶栏 -->
+<header class="header">
+    <h1>Agent 备份 控制台</h1>
+    <div class="actions">
+        <button onclick="showChangePassword()">修改密码</button>
+        <button onclick="logout()">登出</button>
+    </div>
+</header>
+
+<!-- Tabs -->
+<nav class="tabs">
+    <div class="tab active" data-tab="backup" onclick="switchTab('backup')">备份</div>
+    <div class="tab" data-tab="config" onclick="switchTab('config')">配置</div>
+    <div class="tab" data-tab="history" onclick="switchTab('history')">历史</div>
+    <div class="tab" data-tab="notify" onclick="switchTab('notify')">通知</div>
+    <div class="tab" data-tab="log" onclick="switchTab('log')">日志</div>
+</nav>
+
+<main class="main">
+
+<!-- Tab: 备份 -->
+<div id="tab-backup" class="tab-content">
+    <div class="section">
+        <h2>备份源</h2>
+        <p class="hint">所有已配置的备份源，启用后会被纳入定时任务。</p>
+        <div id="source-list" class="source-list">
+            <div class="empty">加载中...</div>
+        </div>
+        <div style="margin-top: 16px;">
+            <button class="btn" onclick="runBackupNow()">立即备份</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>状态</h2>
+        <div id="status-info">
+            <p>应用版本: <span id="info-version">加载中...</span></p>
+            <p>服务地址: <code id="info-url">加载中...</code></p>
+        </div>
+    </div>
+
+    <div class="section" id="backup-progress-section" style="display:none;">
+        <h2>备份进度</h2>
+        <div class="progress-bar"><div class="progress-fill" id="backup-progress-fill" style="width:0%"></div></div>
+        <p id="backup-progress-text">准备中...</p>
+    </div>
+
+    <div class="section">
+        <h2>保留策略</h2>
+        <p class="hint">手动执行保留策略（删除超过保留天数的备份）。</p>
+        <button class="btn" onclick="runRetention()">立即执行保留策略</button>
+        <span id="retention-result" style="margin-left:12px;"></span>
+    </div>
+</div>
+
+<!-- Tab: 配置 -->
+<div id="tab-config" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>备份源配置</h2>
+        <p class="hint">添加、修改、启用/禁用备份源。</p>
+        <div id="config-sources"></div>
+        <div style="margin-top: 16px;">
+            <button class="btn" onclick="addSource()">+ 添加源</button>
+            <button class="btn" onclick="saveConfig()">保存配置</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>定时调度</h2>
+        <p class="hint">使用 crontab 表达式（默认 0 3 * * * = 每天凌晨 3 点）</p>
+        <div class="form-group">
+            <label>Cron 表达式</label>
+            <input type="text" id="cron-schedule" placeholder="0 3 * * *">
+        </div>
+        <div class="form-group">
+            <label>常用预设</label>
+            <select onchange="document.getElementById('cron-schedule').value=this.value">
+                <option value="">-- 选择预设 --</option>
+                <option value="0 3 * * *">每天凌晨 3 点</option>
+                <option value="0 */6 * * *">每 6 小时</option>
+                <option value="0 3 * * 0">每周日凌晨 3 点</option>
+                <option value="0 3 1 * *">每月 1 号凌晨 3 点</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+<!-- Tab: 历史 -->
+<div id="tab-history" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>备份历史</h2>
+        <div style="overflow-x: auto;">
+            <table id="history-table">
+                <thead>
+                    <tr>
+                        <th>时间</th>
+                        <th>源</th>
+                        <th>大小</th>
+                        <th>SHA-256</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="5" class="empty">加载中...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Tab: 通知 -->
+<div id="tab-notify" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>通知测试</h2>
+        <p class="hint">测试通知通道是否能正常发送。系统会按 QQ → 飞牛 → 邮件的顺序自动降级。</p>
+        <div class="form-group">
+            <label>消息内容</label>
+            <input type="text" id="notify-message" placeholder="[Agent 备份] 测试消息" value="[Agent 备份] 测试通知">
+        </div>
+        <button class="btn" onclick="testNotify()">发送测试</button>
+    </div>
+</div>
+
+<!-- Tab: 日志（v1.0.17 新增） -->
+<div id="tab-log" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>运行日志</h2>
+        <p class="hint">显示最近 200 行 server.log。点击"刷新"获取最新日志。</p>
+        <button class="btn" onclick="loadLog()">刷新日志</button>
+        <pre id="log-container" style="background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:6px;max-height:600px;overflow:auto;font-size:12px;margin-top:12px;">加载中...</pre>
+    </div>
+</div>
+
+</main>
+
+<!-- Modal: 登录 -->
+<div id="modal-login" class="modal-overlay show">
+    <div class="modal">
+        <h3>登录</h3>
+        <p>请输入密码登录</p>
+        <div class="form-group">
+            <input type="password" id="login-password" placeholder="密码" autofocus>
+        </div>
+        <div class="modal-actions">
+            <button class="btn" onclick="doLogin()">登录</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: 首次设置密码（v1.0.16 新增） -->
+<div id="modal-setup" class="modal-overlay">
+    <div class="modal">
+        <h3>设置密码</h3>
+        <p>首次使用，请设置一个密码（至少 4 个字符）</p>
+        <div class="form-group">
+            <input type="password" id="setup-password" placeholder="新密码" autofocus>
+        </div>
+        <div class="form-group">
+            <input type="password" id="setup-password-confirm" placeholder="确认密码">
+        </div>
+        <div class="modal-actions">
+            <button class="btn" onclick="doSetupPassword()">设置密码并登录</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: 修改密码 -->
+<div id="modal-password" class="modal-overlay">
+    <div class="modal">
+        <h3>修改密码</h3>
+        <div class="form-group">
+            <label>原密码</label>
+            <input type="password" id="pw-old">
+        </div>
+        <div class="form-group">
+            <label>新密码（至少 6 位）</label>
+            <input type="password" id="pw-new">
+        </div>
+        <div class="form-group">
+            <label>确认新密码</label>
+            <input type="password" id="pw-confirm">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeModal('modal-password')">取消</button>
+            <button class="btn" onclick="doChangePassword()">确认</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: 二次确认 -->
+<div id="modal-confirm" class="modal-overlay">
+    <div class="modal">
+        <h3 id="confirm-title">确认操作</h3>
+        <p id="confirm-message">此操作不可撤销，请确认。</p>
+        <div class="form-group">
+            <label>输入 YES 以确认</label>
+            <input type="text" id="confirm-input" placeholder="YES">
+        </div>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeModal('modal-confirm')">取消</button>
+            <button class="btn btn-danger" onclick="doConfirm()">确认</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// ============ 状态 ============
+let authToken = localStorage.getItem('ab_token') || '';
+let currentConfig = null;
+let confirmCallback = null;
+
+// ============ 工具函数 ============
+function showToast(msg, type) {
+    type = type || 'info';
+    const toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 3000);
+}
+
+function closeModal(id) {
+    document.getElementById(id).classList.remove('show');
+}
+
+function showConfirm(title, message, callback) {
+    document.getElementById('confirm-title').textContent = title;
+    document.getElementById('confirm-message').textContent = message;
+    document.getElementById('confirm-input').value = '';
+    document.getElementById('modal-confirm').classList.add('show');
+    confirmCallback = callback;
+}
+
+function doConfirm() {
+    const input = document.getElementById('confirm-input').value;
+    if (input !== 'YES') {
+        showToast('请输入 YES', 'error');
+        return;
+    }
+    closeModal('modal-confirm');
+    if (confirmCallback) confirmCallback();
+    confirmCallback = null;
+}
+
+function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(1) + ' MB';
+    return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+}
+
+function formatTime(ts) {
+    const d = new Date(ts);
+    return d.getFullYear() + '-' +
+        String(d.getMonth() + 1).padStart(2, '0') + '-' +
+        String(d.getDate()).padStart(2, '0') + ' ' +
+        String(d.getHours()).padStart(2, '0') + ':' +
+        String(d.getMinutes()).padStart(2, '0');
+}
+
+// ============ API 调用 ============
+async function apiCall(method, path, body) {
+    const opts = {
+        method,
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Auth-Token': authToken,
+        },
+    };
+    if (body) opts.body = JSON.stringify(body);
+    try {
+        const res = await fetch(path, opts);
+        const data = await res.json().catch(() => ({}));
+        if (res.status === 401) {
+            showToast('未授权，请重新登录', 'error');
+            showLogin();
+            return null;
+        }
+        if (!res.ok) {
+            showToast(data.error || '请求失败', 'error');
+            return null;
+        }
+        return data;
+    } catch (e) {
+        showToast('网络错误: ' + e.message, 'error');
+        return null;
+    }
+}
+
+// ============ 登录 ============
+function showLogin() {
+    closeModal('modal-setup');
+    document.getElementById('modal-login').classList.add('show');
+}
+
+// v1.0.16 新增：首次设置密码
+function showPasswordSetup() {
+    closeModal('modal-login');
+    document.getElementById('modal-setup').classList.add('show');
+}
+
+async function doSetupPassword() {
+    const pwd = document.getElementById('setup-password').value;
+    const pwd2 = document.getElementById('setup-password-confirm').value;
+    if (!pwd) { showToast('请输入密码', 'error'); return; }
+    if (pwd.length < 4) { showToast('密码至少 4 个字符', 'error'); return; }
+    if (pwd !== pwd2) { showToast('两次密码不一致', 'error'); return; }
+    const res = await apiCall('POST', '/api/auth/setup', { password: pwd });
+    if (res && res.token) {
+        authToken = res.token;
+        localStorage.setItem('ab_token', authToken);
+        closeModal('modal-setup');
+        showToast('密码设置成功，已自动登录', 'success');
+        loadAll();
+    }
+}
+
+async function doLogin() {
+    const password = document.getElementById('login-password').value;
+    if (!password) {
+        showToast('请输入密码', 'error');
+        return;
+    }
+    const res = await apiCall('POST', '/api/auth/login', { password });
+    if (res && res.token) {
+        authToken = res.token;
+        localStorage.setItem('ab_token', authToken);
+        closeModal('modal-login');
+        showToast('登录成功', 'success');
+        loadAll();
+    }
+}
+
+function logout() {
+    authToken = '';
+    localStorage.removeItem('ab_token');
+    showLogin();
+}
+
+// ============ Tab 切换 ============
+function switchTab(tab) {
+    document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + tab).style.display = 'block';
+    document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
+    if (tab === 'history') loadHistory();
+    if (tab === 'config') loadConfigUI();
+}
+
+// ============ 备份源 ============
+async function loadSources() {
+    const res = await apiCall('GET', '/api/config');
+    if (!res) return;
+    currentConfig = res;
+    renderSources(res.sources || []);
+}
+
+function renderSources(sources) {
+    const container = document.getElementById('source-list');
+    if (sources.length === 0) {
+        container.innerHTML = '<div class="empty">暂无备份源，请到「配置」添加</div>';
+        return;
+    }
+    container.innerHTML = sources.map(s => `
+        <div class="source-card">
+            <div class="source-info">
+                <h3>${escapeHtml(s.name)}</h3>
+                <p>${escapeHtml(s.path)}</p>
+            </div>
+            <div class="source-actions">
+                <label class="switch">
+                    <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="toggleSource('${s.id}', this.checked)">
+                    <span class="slider"></span>
+                </label>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function toggleSource(id, enabled) {
+    const source = currentConfig.sources.find(s => s.id === id);
+    if (source) {
+        source.enabled = enabled;
+        const res = await apiCall('POST', '/api/config', currentConfig);
+        if (res) showToast(enabled ? '已启用' : '已禁用', 'success');
+    }
+}
+
+async function runBackupNow() {
+    showConfirm('立即备份', '将立即执行所有已启用的备份源，确认继续？', async () => {
+        showToast('备份已启动，请稍候...', 'info');
+        // v1.0.17 假进度条（后端无真进度接口）
+        const section = document.getElementById('backup-progress-section');
+        const fill = document.getElementById('backup-progress-fill');
+        const text = document.getElementById('backup-progress-text');
+        section.style.display = 'block';
+        fill.style.width = '0%';
+        text.textContent = '准备中...';
+        let p = 0;
+        const tick = setInterval(() => {
+            p = Math.min(p + 5, 90);
+            fill.style.width = p + '%';
+            text.textContent = `备份中... ${p}%`;
+        }, 300);
+        const res = await apiCall('POST', '/api/backup/run');
+        clearInterval(tick);
+        fill.style.width = '100%';
+        text.textContent = res && res.ok !== false ? '备份完成' : ('失败: ' + (res && res.error || 'unknown'));
+        if (res && res.ok !== false) {
+            showToast('备份完成', 'success');
+            loadHistory();
+        }
+    });
+}
+
+// ============ v1.0.17 新增：应用信息（版本 + IP） ============
+async function loadInfo() {
+    try {
+        const res = await fetch('/api/info');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const info = await res.json();
+        if (info.version) document.getElementById('info-version').textContent = info.version;
+        if (info.url) document.getElementById('info-url').textContent = info.url;
+    } catch (e) {
+        document.getElementById('info-version').textContent = '加载失败';
+        document.getElementById('info-url').textContent = '-';
+    }
+}
+
+// ============ v1.0.17 新增：手动执行保留策略 ============
+async function runRetention() {
+    showConfirm('执行保留策略', '将根据配置中的保留天数删除过期备份，确认继续？', async () => {
+        const res = await apiCall('POST', '/api/backup/retention/run');
+        const span = document.getElementById('retention-result');
+        if (res && res.ok) {
+            span.textContent = `已删除 ${res.cleaned} 个过期备份（保留 ${res.days} 天）`;
+            showToast('保留策略执行完成', 'success');
+        } else {
+            span.textContent = '失败: ' + (res && res.error || 'unknown');
+        }
+    });
+}
+
+// ============ v1.0.17 新增：日志查看 ============
+async function loadLog() {
+    const res = await apiCall('GET', '/api/log?lines=200');
+    const container = document.getElementById('log-container');
+    if (!res || !res.lines) {
+        container.textContent = '加载失败';
+        return;
+    }
+    container.textContent = res.lines.join('\n');
+    container.scrollTop = container.scrollHeight;
+}
+
+// ============ 配置 ============
+function loadConfigUI() {
+    if (!currentConfig) {
+        loadSources();
+        return;
+    }
+    document.getElementById('cron-schedule').value = currentConfig.schedule || '0 3 * * *';
+    renderConfigSources(currentConfig.sources || []);
+}
+
+function renderConfigSources(sources) {
+    const container = document.getElementById('config-sources');
+    if (sources.length === 0) {
+        container.innerHTML = '<div class="empty">暂无备份源</div>';
+        return;
+    }
+    container.innerHTML = sources.map((s, i) => `
+        <div class="section" style="background: #f8f9fa; padding: 16px; margin-bottom: 12px;">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>ID</label>
+                    <input type="text" value="${escapeHtml(s.id)}" onchange="updateSource(${i}, 'id', this.value)">
+                </div>
+                <div class="form-group">
+                    <label>名称</label>
+                    <input type="text" value="${escapeHtml(s.name)}" onchange="updateSource(${i}, 'name', this.value)">
+                </div>
+            </div>
+            <div class="form-group">
+                <label>路径</label>
+                <input type="text" value="${escapeHtml(s.path)}" onchange="updateSource(${i}, 'path', this.value)">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" ${s.enabled ? 'checked' : ''} onchange="updateSource(${i}, 'enabled', this.checked)">
+                    启用
+                </label>
+            </div>
+            <button class="btn btn-danger btn-sm" onclick="removeSource(${i})">删除</button>
+        </div>
+    `).join('');
+}
+
+function updateSource(index, field, value) {
+    if (currentConfig.sources[index]) {
+        currentConfig.sources[index][field] = value;
+    }
+}
+
+function addSource() {
+    if (!currentConfig.sources) currentConfig.sources = [];
+    const id = 'src-' + Date.now();
+    currentConfig.sources.push({
+        id,
+        name: '新备份源',
+        path: '/vol3/@appshare/',
+        enabled: false,
+        include: ['*'],
+        exclude: [],
+    });
+    renderConfigSources(currentConfig.sources);
+}
+
+function removeSource(index) {
+    showConfirm('删除源', '确认删除此备份源？', () => {
+        currentConfig.sources.splice(index, 1);
+        renderConfigSources(currentConfig.sources);
+    });
+}
+
+async function saveConfig() {
+    currentConfig.schedule = document.getElementById('cron-schedule').value;
+    const res = await apiCall('POST', '/api/config', currentConfig);
+    if (res) showToast('配置已保存', 'success');
+}
+
+// ============ 历史 ============
+async function loadHistory() {
+    const res = await apiCall('GET', '/api/history?limit=100');
+    const tbody = document.querySelector('#history-table tbody');
+    if (!res || !res.history) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">加载失败</td></tr>';
+        return;
+    }
+    if (res.history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无备份记录</td></tr>';
+        return;
+    }
+    tbody.innerHTML = res.history.map(b => `
+        <tr>
+            <td>${formatTime(b.timestamp)}</td>
+            <td>${escapeHtml(b.sourceName || b.sourceId)}</td>
+            <td>${formatSize(b.size || 0)}</td>
+            <td><code style="font-size: 11px;">${(b.sha256 || '').slice(0, 12)}...</code></td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="verifyBackup('${b.id}')">校验</button>
+                <button class="btn btn-sm btn-danger" onclick="restoreBackup('${b.id}')">恢复</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function verifyBackup(id) {
+    showToast('校验中...', 'info');
+    const res = await apiCall('GET', '/api/restore/verify/' + id);
+    if (res && res.ok) {
+        showToast('校验通过: ' + res.sha256.slice(0, 12) + '...', 'success');
+    }
+}
+
+function restoreBackup(id) {
+    const target = prompt('请输入恢复目标路径（例如 /vol3/@appdata/restore-test）：');
+    if (!target) return;
+    showConfirm('恢复备份', `将从 ${id} 恢复到 ${target}，确认？`, async () => {
+        const res = await apiCall('POST', '/api/restore/execute', {
+            id, targetPath: target, confirm: 'YES'
+        });
+        if (res && res.ok) {
+            showToast('恢复完成', 'success');
+        }
+    });
+}
+
+// ============ 通知测试 ============
+async function testNotify() {
+    const message = document.getElementById('notify-message').value;
+    const res = await apiCall('POST', '/api/notify/test', { message });
+    if (res) {
+        showToast(res.ok ? '发送成功' : '发送失败（已写本地日志）', res.ok ? 'success' : 'error');
+    }
+}
+
+// ============ 修改密码 ============
+function showChangePassword() {
+    document.getElementById('pw-old').value = '';
+    document.getElementById('pw-new').value = '';
+    document.getElementById('pw-confirm').value = '';
+    document.getElementById('modal-password').classList.add('show');
+}
+
+async function doChangePassword() {
+    const oldPw = document.getElementById('pw-old').value;
+    const newPw = document.getElementById('pw-new').value;
+    const confirmPw = document.getElementById('pw-confirm').value;
+    if (!oldPw || !newPw) {
+        showToast('请填写完整', 'error');
+        return;
+    }
+    if (newPw !== confirmPw) {
+        showToast('两次输入不一致', 'error');
+        return;
+    }
+    if (newPw.length < 6) {
+        showToast('新密码至少 6 位', 'error');
+        return;
+    }
+    const res = await apiCall('POST', '/api/auth/change-password', {
+        oldPassword: oldPw, newPassword: newPw
+    });
+    if (res && res.token) {
+        authToken = res.token;
+        localStorage.setItem('ab_token', authToken);
+        closeModal('modal-password');
+        showToast('密码已修改', 'success');
+    }
+}
+
+// ============ HTML 转义 ============
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str).replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+}
+
+// ============ 初始化 ============
+function loadAll() {
+    loadSources();
+    loadConfigUI();
+    loadInfo(); // v1.0.17 新增
+}
+
+// v1.0.16 改：先调 /api/auth/status 判断是否需要首次设置密码
+fetch('/api/auth/status').then(r => r.json()).then(async (status) => {
+    if (status && status.needsPasswordSetup) {
+        // 首次装机：显示设置密码弹窗
+        showPasswordSetup();
+    } else if (authToken) {
+        apiCall('GET', '/api/auth/check').then(res => {
+            if (res) {
+                closeModal('modal-login');
+                closeModal('modal-setup');
+                loadAll();
+            } else {
+                showLogin();
+            }
+        });
+    } else {
+        showLogin();
+    }
+}).catch(() => showLogin());
+</script>
+
+</body>
+</html>

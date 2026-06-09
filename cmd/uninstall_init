@@ -1,0 +1,16 @@
+#!/bin/bash
+# uninstall_init：卸载前初始化（记录 + 询问保留数据）
+set -e
+
+APP_NAME="com.dustinky.agentbackup"
+APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
+LOG_DIR="${APP_DATA_DIR}/logs"
+SERVER_LOG="${LOG_DIR}/server.log"
+
+mkdir -p "${LOG_DIR}" 2>/dev/null || true
+touch "${SERVER_LOG}" 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] uninstall_init: 卸载前初始化" | tee -a "${SERVER_LOG}"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] 备份数据保留在: ${APP_DATA_DIR}/backups/" | tee -a "${SERVER_LOG}"
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] 卸载不会删除 backups/（M150 防护）" | tee -a "${SERVER_LOG}"
+exit 0

@@ -1,0 +1,28 @@
+#!/bin/bash
+# upgrade_init：升级前初始化（记录 + 备份 auth.json）
+set -e
+
+APP_NAME="com.dustinky.agentbackup"
+APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
+LOG_DIR="${APP_DATA_DIR}/logs"
+SERVER_LOG="${LOG_DIR}/server.log"
+
+mkdir -p "${LOG_DIR}" 2>/dev/null || true
+touch "${SERVER_LOG}" 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] upgrade_init: 升级前初始化" | tee -a "${SERVER_LOG}"
+
+# 备份 auth.json（M121 升机兼容：旧 auth.json 不丢）
+if [ -f "${APP_DATA_DIR}/auth.json" ]; then
+    cp -p "${APP_DATA_DIR}/auth.json" "${APP_DATA_DIR}/auth.json.bak.$(date +%s)" 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] auth.json 已备份" | tee -a "${SERVER_LOG}"
+fi
+
+# 备份 config.json
+if [ -f "${APP_DATA_DIR}/config/config.json" ]; then
+    cp -p "${APP_DATA_DIR}/config/config.json" "${APP_DATA_DIR}/config/config.json.bak.$(date +%s)" 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] config.json 已备份" | tee -a "${SERVER_LOG}"
+fi
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] upgrade_init: OK" | tee -a "${SERVER_LOG}"
+exit 0

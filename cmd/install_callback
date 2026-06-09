@@ -1,0 +1,20 @@
+#!/bin/bash
+# install_callback：安装后回调（pkill 旧进程 + 记日志）
+set -e
+
+APP_NAME="com.dustinky.agentbackup"
+SERVICE_PORT=12083
+LOG_DIR="/vol3/@appdata/${APP_NAME}/logs"
+SERVER_LOG="${LOG_DIR}/server.log"
+
+mkdir -p "${LOG_DIR}" 2>/dev/null || true
+touch "${SERVER_LOG}" 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] install_callback: 清理旧进程" | tee -a "${SERVER_LOG}"
+
+# pkill 旧进程（M150 第 3 处）
+pkill -9 -f "node.*${APP_NAME}.*server" 2>/dev/null || true
+fuser -k -9 "${SERVICE_PORT}/tcp" 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] install_callback: OK" | tee -a "${SERVER_LOG}"
+exit 0

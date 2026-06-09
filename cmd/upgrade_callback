@@ -1,0 +1,41 @@
+#!/bin/bash
+# upgrade_callback：升级后回调（pkill + 恢复 auth.json）
+set -e
+
+APP_NAME="com.dustinky.agentbackup"
+APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
+SERVICE_PORT=12083
+LOG_DIR="${APP_DATA_DIR}/logs"
+SERVER_LOG="${LOG_DIR}/server.log"
+
+mkdir -p "${LOG_DIR}" 2>/dev/null || true
+touch "${SERVER_LOG}" 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] upgrade_callback: 升级后处理" | tee -a "${SERVER_LOG}"
+
+# pkill 旧进程（M150 第 4 处）
+pkill -9 -f "node.*${APP_NAME}.*server" 2>/dev/null || true
+fuser -k -9 "${SERVICE_PORT}/tcp" 2>/dev/null || true
+
+# 恢复 auth.json（M121 升机兼容）
+latest_bak=$(ls -t "${APP_DATA_DIR}/auth.json.bak."* 2>/dev/null | head -1 || true)
+if [ -n "${latest_bak}" ] && [ ! -f "${APP_DATA_DIR}/auth.json" ]; then
+    cp -p "${latest_bak}" "${APP_DATA_DIR}/auth.json" 2>/dev/null || true
+    chmod 600 "${APP_DATA_DIR}/auth.json" 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] auth.json 已从 ${latest_bak} 恢复" | tee -a "${SERVER_LOG}"
+fi
+
+# 恢复 config.json
+latest_bak=$(ls -t "${APP_DATA_DIR}/config/config.json.bak."* 2>/dev/null | head -1 || true)
+if [ -n "${latest_bak}" ] && [ ! -f "${APP_DATA_DIR}/config/config.json" ]; then
+    cp -p "${latest_bak}" "${APP_DATA_DIR}/config/config.json" 2>/dev/null || true
+    chmod 600 "${APP_DATA_DIR}/config/config.json" 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] config.json 已从 ${latest_bak} 恢复" | tee -a "${SERVER_LOG}"
+fi
+
+# 清理老的 bak（保留最近 3 个）
+ls -t "${APP_DATA_DIR}/auth.json.bak."* 2>/dev/null | tail -n +4 | xargs -r rm -f 2>/dev/null || true
+ls -t "${APP_DATA_DIR}/config/config.json.bak."* 2>/dev/null | tail -n +4 | xargs -r rm -f 2>/dev/null || true
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] upgrade_callback: OK" | tee -a "${SERVER_LOG}"
+exit 0

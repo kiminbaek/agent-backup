@@ -1,0 +1,14 @@
+{
+  ".url": {
+    "com.dustinky.agentbackup.Application": {
+      "title": "Agent 备份",
+      "desc": "Agent 备份控制台",
+      "icon": "images/icon_{0}.png",
+      "type": "url",
+      "port": "12083",
+      "protocol": "http",
+      "url": "/",
+      "allUsers": true
+    }
+  }
+}
