@@ -1,41 +1,34 @@
-// notifier.js：3 通道通知（QQ → 飞牛 → 邮件）+ 告警抑制 5min
+// notifier.js：v1.1.0 可配置 QQ/飞牛 webhook 通知，email 明确暂未启用
 const https = require('https');
+const http = require('http');
 const { URL } = require('url');
-const fs = require('fs');
 const logger = require('./logger');
+const storage = require('./storage');
 
-// v1.0.20 改：CONFIG_FILE 走 lib/backup-engine 常量
-const { CONFIG_FILE } = require('./backup-engine');
 const SUPPRESS_WINDOW = 5 * 60 * 1000;
-const MAX_ALERTS_CACHE = 100; // v1.0.20 加：限制 Map 大小，防止内存泄露
+const MAX_ALERTS_CACHE = 100;
 const recentAlerts = new Map();
 
-// v1.0.20 加：定期清理过期 alerts（每次 send 时顺手清）
 function trimAlerts() {
-    if (recentAlerts.size <= MAX_ALERTS_CACHE) return;
     const now = Date.now();
     for (const [k, t] of recentAlerts.entries()) {
         if (now - t >= SUPPRESS_WINDOW) recentAlerts.delete(k);
     }
-    // 兜底：超过上限按插入顺序删最旧的
     while (recentAlerts.size > MAX_ALERTS_CACHE) {
-        const firstKey = recentAlerts.keys().next().value;
-        recentAlerts.delete(firstKey);
+        recentAlerts.delete(recentAlerts.keys().next().value);
     }
 }
 
 function postJson(urlStr, data) {
     return new Promise((resolve, reject) => {
         const url = new URL(urlStr);
-        const req = https.request({
+        const mod = url.protocol === 'http:' ? http : https;
+        const req = mod.request({
             hostname: url.hostname,
-            port: url.port || 443,
+            port: url.port || (url.protocol === 'http:' ? 80 : 443),
             path: url.pathname + url.search,
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(data),
-            },
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) },
             timeout: 10000,
         }, (res) => {
             let body = '';
@@ -49,69 +42,62 @@ function postJson(urlStr, data) {
     });
 }
 
-async function send(channel, payload) {
-    let config;
-    try {
-        config = JSON.parse(fs.readFileSync(CONFIG_FILE));
-    } catch (e) {
-        logger.warn(`notifier 读 config 失败: ${e.message}`);
-        return false;
-    }
-    if (!config.notify || !config.notify[channel]) return false;
-    const target = config.notify[channel];
-    if (!target || !target.url) return false;
-
-    try {
-        if (channel === 'qq') {
-            const data = JSON.stringify({ msg_type: 'text', content: { text: payload } });
-            const res = await postJson(target.url, data);
-            return res.status >= 200 && res.status < 300;
-        } else if (channel === 'feiniu') {
-            const data = JSON.stringify({ title: 'Agent 备份', content: payload });
-            const res = await postJson(target.url, data);
-            return res.status >= 200 && res.status < 300;
-        } else if (channel === 'email') {
-            // v1.0.20 修：email 暂时未集成，返 false（不再 silent true）
-            logger.warn('email 通道暂未集成，请使用 QQ 或飞牛 webhook');
-            return false;
-        }
-    } catch (e) {
-        logger.warn(`notify ${channel} 失败: ${e.message}`);
-        return false;
-    }
-    return false;
+function shouldSend(config, event) {
+    const n = config.notify || {};
+    if (!n.enabled) return false;
+    if (event === 'success' && n.onSuccess === false) return false;
+    if (event === 'failure' && n.onFailure === false) return false;
+    if (event === 'nosource' && n.onNoSource === false) return false;
+    return true;
 }
 
-async function notify(payload) {
-    if (!payload || typeof payload !== 'string') return false;
+async function sendOne(channel, target, payload) {
+    if (!target || !target.enabled) return { channel, ok: false, skipped: true, error: '未启用' };
+    if (channel === 'email') return { channel, ok: false, skipped: true, error: 'email 通道 v1.1.0 暂未集成，请使用 QQ 或飞牛 webhook' };
+    if (!target.url) return { channel, ok: false, skipped: true, error: 'URL 为空' };
+    try {
+        const data = channel === 'qq'
+            ? JSON.stringify({ msg_type: 'text', content: { text: payload } })
+            : JSON.stringify({ title: 'Agent 备份', content: payload });
+        const res = await postJson(target.url, data);
+        const ok = res.status >= 200 && res.status < 300;
+        return { channel, ok, status: res.status, body: String(res.body || '').slice(0, 500) };
+    } catch (e) {
+        logger.warn(`通知失败 channel=${channel}: ${e.message}`);
+        return { channel, ok: false, error: e.message };
+    }
+}
 
-    // v1.0.20 改：先 trim 再检查抑制（防止 Map 永远增长）
+async function notify(payload, event) {
     trimAlerts();
-    const key = payload.slice(0, 50);
-    const lastSent = recentAlerts.get(key) || 0;
-    if (Date.now() - lastSent < SUPPRESS_WINDOW) {
-        logger.info(`[SUPPRESSED] ${payload}`);
-        return false;
-    }
-    recentAlerts.set(key, Date.now());
+    const config = storage.loadConfig();
+    const ev = event || 'failure';
+    if (!shouldSend(config, ev)) return { ok: false, skipped: true, error: '通知未启用或场景关闭', results: [] };
 
-    // 三降级
-    if (await send('qq', payload)) {
-        logger.info(`notify QQ OK: ${payload.slice(0, 80)}`);
-        return true;
+    const key = ev + ':' + payload;
+    const now = Date.now();
+    if (recentAlerts.has(key) && now - recentAlerts.get(key) < SUPPRESS_WINDOW) {
+        return { ok: false, skipped: true, error: '5 分钟内重复通知已抑制', results: [] };
     }
-    if (await send('feiniu', payload)) {
-        logger.info(`notify 飞牛 OK: ${payload.slice(0, 80)}`);
-        return true;
-    }
-    if (await send('email', payload)) {
-        logger.info(`notify 邮件 OK: ${payload.slice(0, 80)}`);
-        return true;
-    }
+    recentAlerts.set(key, now);
 
-    // 全部失败：写本地日志
-    logger.error(`notify 全部通道失败: ${payload}`);
-    return false;
+    const channels = (config.notify && config.notify.channels) || {};
+    const order = ['qq', 'feiniu', 'email'];
+    const results = [];
+    for (const ch of order) results.push(await sendOne(ch, channels[ch], payload));
+    return { ok: results.some(r => r.ok), results };
 }
 
-module.exports = { notify, send };
+function getConfig() {
+    const config = storage.loadConfig();
+    return config.notify || storage.defaultConfig().notify;
+}
+
+function saveNotifyConfig(notify) {
+    const config = storage.loadConfig();
+    config.notify = storage.normalizeConfig({ notify }).notify;
+    storage.saveConfig(config);
+    return config.notify;
+}
+
+module.exports = { notify, sendOne, getConfig, saveNotifyConfig };

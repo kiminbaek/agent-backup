@@ -1,30 +1,19 @@
-// cron-engine.js：node-cron 调度（默认 0 3 * * *）
+// cron-engine.js：node-cron 调度（默认 0 3 * * *），v1.1.0 走统一 storage 配置
 const cron = require('node-cron');
-const fs = require('fs');
 const logger = require('./logger');
 const backup = require('./backup-engine');
-const notifier = require('./notifier');
-
-// v1.0.20 改：CONFIG_FILE 走 lib/backup-engine 的 CONFIG_FILE 常量（不再写死）
-const { CONFIG_FILE } = require('./backup-engine');
+const storage = require('./storage');
 
 let task = null;
 
 function loadConfig() {
-    if (!fs.existsSync(CONFIG_FILE)) {
-        return { sources: [], schedule: '0 3 * * *' };
-    }
-    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    return storage.loadConfig();
 }
 
 async function tick() {
     logger.info('[cron] 触发定时备份');
     const config = loadConfig();
-    if (!config.sources || config.sources.length === 0) {
-        logger.warn('[cron] 没有配置备份源');
-        return;
-    }
-    await backup.runBackup(config.sources);
+    await backup.runBackup(config.sources || []);
 }
 
 function start() {
@@ -54,26 +43,15 @@ function stop() {
 }
 
 function getStatus() {
-    return {
-        running: task !== null,
-        schedule: loadConfig().schedule,
-    };
+    return { running: task !== null, schedule: loadConfig().schedule };
 }
 
 function updateSchedule(newSchedule) {
-    if (!cron.validate(newSchedule)) {
-        throw new Error(`无效的 cron 表达式: ${newSchedule}`);
-    }
+    if (!cron.validate(newSchedule)) throw new Error(`无效的 cron 表达式: ${newSchedule}`);
     const config = loadConfig();
     config.schedule = newSchedule;
-    // v1.0.20 改：atomic write（tmp + rename）
-    const tmp = CONFIG_FILE + '.tmp';
-    fs.writeFileSync(tmp, JSON.stringify(config, null, 2));
-    fs.renameSync(tmp, CONFIG_FILE);
-    if (task) {
-        stop();
-        start();
-    }
+    storage.saveConfig(config);
+    if (task) { stop(); start(); }
     return true;
 }
 

@@ -1,6 +1,6 @@
 {
   "name": "agent-backup",
-  "version": "1.0.19",
+  "version": "1.1.0",
   "description": "Agent 备份 - fnOS 定时备份应用",
   "main": "server.js",
   "scripts": {

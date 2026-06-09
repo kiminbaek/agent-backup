@@ -1,59 +1,57 @@
-// routes/config.js：读写 config.json
+// routes/config.js：v1.1.0 读写配置 + 导入导出
 const express = require('express');
 const router = express.Router();
-const fs = require('fs');
 const auth = require('../lib/auth');
 const cron = require('../lib/cron-engine');
 const validators = require('../lib/validators');
-const logger = require('../lib/logger');
+const storage = require('../lib/storage');
 
-// v1.0.20 改：CONFIG_FILE 走 lib/backup-engine 的常量（不再写死）
-const { CONFIG_FILE } = require('../lib/backup-engine');
-
-// v1.0.17 改：统一使用 lib/auth 的 requireToken 中间件
 const requireAuth = auth.requireToken;
+const CONFIG_FILE = storage.CONFIG_FILE;
 
-// GET /api/config
 router.get('/', requireAuth, (req, res) => {
-    try {
-        if (!fs.existsSync(CONFIG_FILE)) {
-            return res.json({ sources: [], schedule: '0 3 * * *' });
-        }
-        res.json(JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')));
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+    try { res.json(storage.loadConfig()); }
+    catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// POST /api/config
 router.post('/', requireAuth, (req, res) => {
     const newConfig = req.body;
-    if (!newConfig || typeof newConfig !== 'object') {
-        return res.status(400).json({ error: 'config 必须是对象' });
-    }
-
-    // v1.0.20 改：用 validateSourcesBatch 统一校验（id 唯一性 + 路径不重复）
+    if (!newConfig || typeof newConfig !== 'object') return res.status(400).json({ error: 'config 必须是对象' });
     if (Array.isArray(newConfig.sources)) {
         const v = validators.validateSourcesBatch(newConfig.sources);
-        if (!v.valid) {
-            return res.status(400).json({ error: v.errors.join('; ') });
-        }
+        if (!v.valid) return res.status(400).json({ error: v.errors.join('; ') });
     }
-
     try {
-        // v1.0.20 改：atomic write（tmp + rename）
-        const tmp = CONFIG_FILE + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify(newConfig, null, 2));
-        try { fs.chmodSync(tmp, 0o600); } catch (_) { /* ignore */ }
-        fs.renameSync(tmp, CONFIG_FILE);
-        // 重新加载 cron
-        if (newConfig.schedule) {
-            cron.updateSchedule(newConfig.schedule);
-        }
+        storage.saveConfig(newConfig);
+        if (newConfig.schedule) cron.updateSchedule(newConfig.schedule);
         res.json({ ok: true });
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.get('/export', requireAuth, (req, res) => {
+    try {
+        const config = storage.loadConfig();
+        if (req.query.mask !== 'false' && config.notify && config.notify.channels) {
+            for (const ch of Object.values(config.notify.channels)) {
+                if (ch.url) ch.url = ch.url.slice(0, 12) + '***MASKED***';
+            }
+        }
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.setHeader('Content-Disposition', 'attachment; filename="agent-backup-config.json"');
+        res.end(JSON.stringify(config, null, 2));
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/import', requireAuth, (req, res) => {
+    try {
+        const config = storage.normalizeConfig(req.body || {});
+        if (Array.isArray(config.sources)) {
+            const v = validators.validateSourcesBatch(config.sources);
+            if (!v.valid) return res.status(400).json({ error: v.errors.join('; ') });
+        }
+        storage.saveConfig(config);
+        res.json({ ok: true, config });
+    } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 module.exports = router;

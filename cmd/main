@@ -128,14 +128,28 @@ console.log('auth.json initialized: needsPasswordSetup=true, token=' + auth.toke
     }
   ],
   "schedule": "0 3 * * *",
+  "storage": {
+    "root": "/vol3/@appdata/com.dustinky.agentbackup/backups",
+    "layout": "year-month-source",
+    "trashDays": 7,
+    "maxUploadGB": 20
+  },
   "retention": {
     "days": 30,
+    "keepLast": 10,
+    "maxTotalSizeGB": 100,
     "warnRatio": 1.5
   },
   "notify": {
-    "qq": { "url": "" },
-    "feiniu": { "url": "" },
-    "email": { "smtp": "", "user": "" }
+    "enabled": false,
+    "onSuccess": true,
+    "onFailure": true,
+    "onNoSource": true,
+    "channels": {
+      "qq": { "enabled": false, "url": "" },
+      "feiniu": { "enabled": false, "url": "" },
+      "email": { "enabled": false, "smtp": "", "user": "", "note": "v1.1.0 暂未启用邮件发送" }
+    }
   }
 }
 EOF

@@ -1,92 +1,76 @@
-// restore.js：原子恢复（先 dry-run → 二次确认 → rsync 恢复）
-const { spawn } = require('child_process'); // v1.0.20 修：删除未使用的 execSync
+// restore.js：v1.1.0 校验 + 预览 + 恢复
+const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
 const validators = require('./validators');
 const backup = require('./backup-engine');
+const storage = require('./storage');
 
-const BACKUP_ROOT = '/vol3/@appdata/com.dustinky.agentbackup/backups';
-
-// 列出可用备份
 function list() {
-    const meta = backup.loadMeta();
-    return meta.backups
-        .filter(b => b.status === 'success')
-        .sort((a, b) => b.timestamp - a.timestamp);
+    return backup.listBackups().filter(b => b.status === 'success');
 }
 
-// 校验备份完整性
 async function verify(id) {
-    const meta = backup.loadMeta();
-    const item = meta.backups.find(b => b.id === id);
-    if (!item) throw new Error(`备份不存在: ${id}`);
-
-    if (!fs.existsSync(item.archive)) {
-        throw new Error(`归档文件丢失: ${item.archive}`);
-    }
-
-    // sha256 校验
-    const actual = await backup.sha256File(item.archive);
-    if (actual !== item.sha256) {
-        throw new Error(`sha256 校验失败: 期望 ${item.sha256}，实际 ${actual}`);
-    }
-    return { ok: true, size: item.size, sha256: actual };
+    return backup.verifyBackup(id);
 }
 
-// 原子恢复：先解压到临时目录，再 rsync 到目标
-async function restore(id, targetPath) {
-    // 1. 校验目标
+function run(cmd, args) {
+    return new Promise((resolve, reject) => {
+        const child = spawn(cmd, args, { stdio: 'pipe' });
+        let stdout = '', stderr = '';
+        child.stdout.on('data', d => stdout += d.toString());
+        child.stderr.on('data', d => stderr += d.toString());
+        child.on('error', reject);
+        child.on('close', code => code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`${cmd} 退出码=${code}: ${stderr.slice(-500)}`)));
+    });
+}
+
+async function extractToTmp(item) {
+    const tmpDir = path.join(storage.TMP_DIR, `restore_${item.id}_${process.pid}_${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    await run('tar', ['--zstd', '-xf', item.archive, '-C', tmpDir]);
+    const children = fs.readdirSync(tmpDir);
+    if (children.length !== 1) throw new Error(`解压目录异常: ${children.join(',')}`);
+    return { tmpDir, extracted: path.join(tmpDir, children[0]) };
+}
+
+async function preview(id, targetPath) {
     const v = validators.validateRestoreTarget(targetPath);
     if (!v.valid) throw new Error(v.error);
-
-    // 2. 校验备份
-    const meta = backup.loadMeta();
-    const item = meta.backups.find(b => b.id === id);
-    if (!item) throw new Error(`备份不存在: ${id}`);
-    if (!fs.existsSync(item.archive)) throw new Error(`归档文件丢失: ${item.archive}`);
-
-    // 3. 解压到临时目录（v1.0.20 修：tmpDir 加 PID 防并发冲突）
-    const tmpDir = path.join('/vol3/@appdata/com.dustinky.agentbackup/tmp', `restore_${id}_${process.pid}_${Date.now()}`);
-    fs.mkdirSync(tmpDir, { recursive: true });
-
+    const item = backup.getBackup(id);
+    if (!item.exists) throw new Error(`归档文件丢失: ${item.archive}`);
+    const { tmpDir, extracted } = await extractToTmp(item);
     try {
-        // 解压
-        await new Promise((resolve, reject) => {
-            const child = spawn('tar', ['--zstd', '-xf', item.archive, '-C', tmpDir]);
-            child.on('error', reject);
-            child.on('close', code => {
-                if (code === 0) resolve();
-                else reject(new Error(`tar 解压失败 code=${code}`));
-            });
-        });
-
-        // 解压后目录：tmpDir/<id>/  (因为 backup-engine 打包时是 -C BACKUP_ROOT id)
-        const extracted = path.join(tmpDir, id);
-        if (!fs.existsSync(extracted)) {
-            throw new Error(`解压后目录不存在: ${extracted}`);
+        const out = await run('rsync', ['-ani', `${extracted}/`, `${targetPath}/`]);
+        const lines = out.stdout.split('\n').filter(Boolean);
+        let added = 0, updated = 0, deleted = 0, same = 0;
+        for (const line of lines) {
+            if (line.startsWith('>f+++++++++')) added++;
+            else if (line.startsWith('>f')) updated++;
+            else if (line.startsWith('*deleting')) deleted++;
+            else same++;
         }
-
-        // 4. rsync 到目标
-        const rsyncArgs = ['-a', `${extracted}/`, `${targetPath}/`];
-        await new Promise((resolve, reject) => {
-            const child = spawn('rsync', rsyncArgs);
-            child.on('error', reject);
-            child.on('close', code => {
-                if (code === 0) resolve();
-                else reject(new Error(`rsync 退出码=${code}`));
-            });
-        });
-
-        logger.info(`恢复完成: ${id} → ${targetPath}`);
-        return { ok: true, source: item.archive, target: targetPath };
+        return { ok: true, id, targetPath, added, updated, deleted, same, total: lines.length, lines: lines.slice(0, 500) };
     } finally {
-        // 清理临时目录
-        try {
-            // v1.0.20 修：用 fs.rmSync 替代 execSync('rm -rf')，避免 shell 注入
-            fs.rmSync(tmpDir, { recursive: true, force: true });
-        } catch (e) { /* ignore */ }
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
     }
 }
 
-module.exports = { list, verify, restore };
+async function restore(id, targetPath) {
+    const v = validators.validateRestoreTarget(targetPath);
+    if (!v.valid) throw new Error(v.error);
+    const item = backup.getBackup(id);
+    if (!item.exists) throw new Error(`归档文件丢失: ${item.archive}`);
+    await backup.verifyBackup(id);
+    const { tmpDir, extracted } = await extractToTmp(item);
+    try {
+        await run('rsync', ['-a', `${extracted}/`, `${targetPath}/`]);
+        logger.info(`恢复完成: ${id} → ${targetPath}`);
+        return { ok: true, id, targetPath };
+    } finally {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+    }
+}
+
+module.exports = { list, verify, preview, restore };

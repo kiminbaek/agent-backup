@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '1.0.22'; // v1.0.22 改：Token Modal + AbortController 真进度 + install_deps 兜底（v1.0.20 37 项 + v1.0.21 依赖兜底）
+const VERSION = '1.1.0'; // v1.1.0 改：下载/导入/详情/自定义存储/分类整理/通知配置/恢复预览/UI 完整升级
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -99,6 +99,7 @@ app.use('/api/restore', require('./routes/restore'));
 app.use('/api/config', require('./routes/config'));
 app.use('/api/history', require('./routes/history'));
 app.use('/api/notify', require('./routes/notify'));
+app.use('/api/storage', require('./routes/storage'));
 
 // 全局错误处理
 app.use((err, req, res, next) => {

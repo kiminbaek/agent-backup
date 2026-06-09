@@ -336,6 +336,8 @@ tr:hover { background: #f8f9fa; }
     <div class="tab active" data-tab="backup" onclick="switchTab('backup')">备份</div>
     <div class="tab" data-tab="config" onclick="switchTab('config')">配置</div>
     <div class="tab" data-tab="history" onclick="switchTab('history')">历史</div>
+    <div class="tab" data-tab="files" onclick="switchTab('files')">备份文件</div>
+    <div class="tab" data-tab="storage" onclick="switchTab('storage')">存储</div>
     <div class="tab" data-tab="notify" onclick="switchTab('notify')">通知</div>
     <div class="tab" data-tab="log" onclick="switchTab('log')">日志</div>
 </nav>
@@ -429,6 +431,48 @@ tr:hover { background: #f8f9fa; }
                 </tbody>
             </table>
         </div>
+    </div>
+</div>
+
+<!-- Tab: 备份文件 -->
+<div id="tab-files" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>备份文件管理</h2>
+        <p class="hint">查看详细信息、下载、导入、校验、恢复预览、保护和移入回收站。</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn" onclick="loadBackupFiles()">刷新</button>
+            <button class="btn btn-secondary" onclick="runPrecheck()">备份前体检</button>
+            <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">导入 .tar.zst</button>
+            <input type="file" id="import-file" accept=".zst" style="display:none" onchange="importBackupFile(this.files[0])">
+            <input type="text" id="backup-search" placeholder="搜索 ID/来源/路径/sha256" oninput="renderBackupFiles()" style="max-width:280px;">
+        </div>
+        <div id="precheck-result" class="hint"></div>
+        <div style="overflow-x:auto;">
+            <table id="files-table">
+                <thead><tr><th>状态</th><th>时间</th><th>来源</th><th>文件</th><th>大小</th><th>SHA-256</th><th>操作</th></tr></thead>
+                <tbody><tr><td colspan="7" class="empty">点击刷新加载</td></tr></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Tab: 存储 -->
+<div id="tab-storage" class="tab-content" style="display:none;">
+    <div class="section">
+        <h2>存储设置</h2>
+        <p class="hint">设置备份文件存放路径，并按 年/月/备份源 自动分类整理。</p>
+        <div id="storage-info" class="hint">加载中...</div>
+        <div class="form-group"><label>备份目录</label><input type="text" id="storage-root" placeholder="/vol3/@appdata/com.dustinky.agentbackup/backups"></div>
+        <div class="form-row">
+            <div class="form-group"><label>分类方式</label><select id="storage-layout"><option value="year-month-source">年/月/来源</option><option value="flat">平铺</option></select></div>
+            <div class="form-group"><label>回收站保留天数</label><input type="number" id="storage-trash-days" value="7"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-secondary" onclick="validateStoragePath()">检查路径</button>
+            <button class="btn" onclick="saveStorageSettings()">保存存储设置</button>
+            <button class="btn btn-secondary" onclick="organizeBackups()">一键分类整理</button>
+        </div>
+        <p id="storage-result" style="margin-top:10px;"></p>
     </div>
 </div>
 
@@ -728,6 +772,8 @@ function switchTab(tab) {
     document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
     // v1.0.20 改：tab 切换时按需加载（之前 log/notify/info 不会自动加载）
     if (tab === 'history') loadHistory();
+    if (tab === 'files') loadBackupFiles();
+    if (tab === 'storage') loadStorageInfo();
     if (tab === 'config') loadConfigUI();
     if (tab === 'log') loadLog();
     if (tab === 'notify') loadNotifyConfig();
@@ -967,25 +1013,7 @@ async function verifyBackup(id) {
 }
 
 function restoreBackup(id) {
-    const target = prompt('请输入恢复目标路径（例如 /vol3/@appdata/restore-test）：');
-    if (!target) return;
-    showConfirm('恢复备份', `将从 ${id} 恢复到 ${target}，确认？`, async () => {
-        const res = await apiCall('POST', '/api/restore/execute', {
-            id, targetPath: target, confirm: 'YES'
-        });
-        if (res && res.ok) {
-            showToast('恢复完成', 'success');
-        }
-    });
-}
-
-// ============ 通知测试 ============
-async function testNotify() {
-    const message = document.getElementById('notify-message').value;
-    const res = await apiCall('POST', '/api/notify/test', { message });
-    if (res) {
-        showToast(res.ok ? '发送成功' : '发送失败（已写本地日志）', res.ok ? 'success' : 'error');
-    }
+    previewRestore(id);
 }
 
 // ============ v1.0.20 新增：Token 管理（显示 + 复制） ============
@@ -1057,28 +1085,212 @@ async function doChangePassword() {
 }
 
 // ============ HTML 转义 ============
-// v1.0.20 新增：通知 tab 内容（轻量版：显示当前通知配置 + 测试按钮）
+
+// ============ v1.1.0 备份文件 / 存储 / 通知增强 ============
+let backupFilesCache = [];
+
+async function runPrecheck() {
+    const res = await apiCall('POST', '/api/backup/precheck');
+    const el = document.getElementById('precheck-result');
+    if (!res || !res.checks) { el.textContent = '体检失败'; return; }
+    el.innerHTML = res.checks.map(c => `${c.ok ? '✅' : '❌'} ${escapeHtml(c.name)} ${c.detail ? ' - ' + escapeHtml(c.detail) : ''}`).join('<br>');
+}
+
+async function loadBackupFiles() {
+    const res = await apiCall('GET', '/api/backup/list');
+    backupFilesCache = res && res.backups || [];
+    renderBackupFiles();
+}
+
+function healthLabel(b) {
+    if (b.status === 'trashed' || b.health === 'trashed') return '🗑️ 已回收';
+    if (b.imported) return '📥 导入';
+    if (b.health === 'missing') return '❌ 丢失';
+    if (b.health === 'ok') return '✅ 正常';
+    return '⚠️ 未校验';
+}
+
+function renderBackupFiles() {
+    const tbody = document.querySelector('#files-table tbody');
+    if (!tbody) return;
+    const q = (document.getElementById('backup-search') && document.getElementById('backup-search').value || '').toLowerCase();
+    const list = backupFilesCache.filter(b => !q || JSON.stringify(b).toLowerCase().includes(q));
+    if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="7" class="empty">暂无备份文件</td></tr>'; return; }
+    tbody.innerHTML = list.map(b => `
+        <tr>
+            <td>${healthLabel(b)}${b.protected ? '<br>⭐ 保护' : ''}</td>
+            <td>${formatTime(b.timestamp)}</td>
+            <td>${escapeHtml(b.sourceName || b.sourceId || '')}<br><small>${escapeHtml(b.sourcePath || '')}</small></td>
+            <td><code style="font-size:11px;">${escapeHtml(b.filename || '')}</code></td>
+            <td>${escapeHtml(b.sizeHuman || formatSize(b.size || 0))}</td>
+            <td><code style="font-size:11px;">${(b.sha256 || '').slice(0, 12)}...</code></td>
+            <td style="white-space:nowrap;">
+                <button class="btn btn-sm btn-secondary" onclick="showBackupDetail('${b.id}')">详情</button>
+                <button class="btn btn-sm btn-secondary" onclick="downloadBackup('${b.id}')">下载</button>
+                <button class="btn btn-sm btn-secondary" onclick="verifyBackup('${b.id}')">校验</button>
+                <button class="btn btn-sm btn-secondary" onclick="previewRestore('${b.id}')">预览恢复</button>
+                <button class="btn btn-sm btn-secondary" onclick="protectBackup('${b.id}', ${!b.protected})">${b.protected ? '取消保护' : '保护'}</button>
+                <button class="btn btn-sm btn-danger" onclick="trashBackup('${b.id}')">回收</button>
+            </td>
+        </tr>`).join('');
+}
+
+function downloadBackup(id) {
+    window.open('/api/backup/download/' + encodeURIComponent(id) + '?token=' + encodeURIComponent(authToken) + '&t=' + Date.now(), '_blank');
+}
+
+async function showBackupDetail(id) {
+    const res = await apiCall('GET', '/api/backup/detail/' + encodeURIComponent(id));
+    if (!res || !res.backup) return;
+    const b = res.backup;
+    showModalHtml('备份详情', `
+        <p><b>ID:</b> <code>${escapeHtml(b.id)}</code></p>
+        <p><b>来源:</b> ${escapeHtml(b.sourceName || '')}</p>
+        <p><b>来源路径:</b> <code>${escapeHtml(b.sourcePath || '')}</code></p>
+        <p><b>归档路径:</b> <code>${escapeHtml(b.archive || '')}</code></p>
+        <p><b>大小:</b> ${escapeHtml(b.sizeHuman || '')}</p>
+        <p><b>sha256:</b> <code style="font-size:11px;word-break:break-all;">${escapeHtml(b.sha256 || '')}</code></p>
+        <p><b>状态:</b> ${healthLabel(b)}</p>
+        <button class="btn btn-secondary" onclick="loadArchiveFiles('${b.id}')">查看文件列表</button>
+        <pre id="archive-files-box" style="margin-top:10px;background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;">点击“查看文件列表”加载</pre>
+    `);
+}
+
+async function loadArchiveFiles(id) {
+    const res = await apiCall('GET', '/api/backup/files/' + encodeURIComponent(id) + '?limit=500');
+    const box = document.getElementById('archive-files-box');
+    if (!box) return;
+    box.textContent = res && res.files ? `共 ${res.total} 个，显示前 ${res.files.length} 个\n` + res.files.join('\n') : '加载失败';
+}
+
+async function importBackupFile(file) {
+    if (!file) return;
+    if (!file.name.endsWith('.tar.zst')) { showToast('只允许导入 .tar.zst', 'error'); return; }
+    showConfirm('导入备份', `将导入 ${file.name} (${formatSize(file.size)})，确认？`, async () => {
+        const res = await fetch('/api/backup/import', {
+            method: 'POST',
+            headers: { 'x-auth-token': authToken, 'x-import-filename': encodeURIComponent(file.name), 'x-source-id': 'imported', 'x-source-name': encodeURIComponent('手动导入') },
+            body: file
+        }).then(r => r.json()).catch(e => ({ error: e.message }));
+        if (res && res.ok) { showToast('导入成功', 'success'); loadBackupFiles(); }
+        else showToast('导入失败: ' + (res && res.error || '未知'), 'error');
+    });
+}
+
+async function previewRestore(id) {
+    const target = prompt('请输入恢复目标路径（建议先用测试目录，例如 /vol3/@appdata/restore-test）：');
+    if (!target) return;
+    const res = await apiCall('POST', '/api/restore/preview', { id, targetPath: target });
+    if (!res || !res.ok) return;
+    showModalHtml('恢复预览', `
+        <p>目标路径：<code>${escapeHtml(target)}</code></p>
+        <p>新增：${res.added}，覆盖/更新：${res.updated}，删除：${res.deleted}，总变更：${res.total}</p>
+        <pre style="background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;">${escapeHtml((res.lines || []).join('\n'))}</pre>
+        <button class="btn btn-danger" onclick="executeRestore('${id}', '${escapeHtml(target)}')">确认恢复</button>
+    `);
+}
+
+async function executeRestore(id, target) {
+    const yes = prompt('高风险操作：请输入 YES 确认恢复');
+    if (yes !== 'YES') return;
+    const res = await apiCall('POST', '/api/restore/execute', { id, targetPath: target, confirm: 'YES' });
+    if (res && res.ok) showToast('恢复完成', 'success');
+}
+
+async function trashBackup(id) {
+    showConfirm('移入回收站', '备份文件会移动到 .trash，不会直接删除。确认？', async () => {
+        const res = await apiCall('POST', '/api/backup/trash/' + encodeURIComponent(id));
+        if (res && res.ok) { showToast('已移入回收站', 'success'); loadBackupFiles(); }
+    });
+}
+
+async function protectBackup(id, value) {
+    const res = await apiCall('POST', '/api/backup/protect/' + encodeURIComponent(id), { protected: value });
+    if (res && res.ok) { showToast(value ? '已保护' : '已取消保护', 'success'); loadBackupFiles(); }
+}
+
+async function loadStorageInfo() {
+    const info = await apiCall('GET', '/api/storage/info');
+    if (!info) return;
+    document.getElementById('storage-info').innerHTML = `当前目录：<code>${escapeHtml(info.root)}</code><br>备份数：${info.successCount}/${info.count}，占用：${info.totalSizeHuman}，剩余：${info.freeHuman}`;
+    document.getElementById('storage-root').value = info.root;
+    document.getElementById('storage-layout').value = info.layout || 'year-month-source';
+    document.getElementById('storage-trash-days').value = info.trashDays || 7;
+}
+
+async function validateStoragePath() {
+    const root = document.getElementById('storage-root').value;
+    const res = await apiCall('POST', '/api/storage/validate', { root, create: false });
+    document.getElementById('storage-result').textContent = res && res.ok ? `✅ 可用，剩余 ${formatSize(res.free || 0)}` : `❌ ${res && res.error || '不可用'}`;
+}
+
+async function saveStorageSettings() {
+    const body = { root: document.getElementById('storage-root').value, layout: document.getElementById('storage-layout').value, trashDays: Number(document.getElementById('storage-trash-days').value || 7) };
+    const res = await apiCall('POST', '/api/storage/save', body);
+    if (res && res.ok) { showToast('存储设置已保存', 'success'); loadStorageInfo(); }
+}
+
+async function organizeBackups() {
+    showConfirm('分类整理', '将按当前规则移动现有备份文件并更新索引，确认？', async () => {
+        const res = await apiCall('POST', '/api/storage/organize');
+        document.getElementById('storage-result').textContent = res ? `整理完成：移动 ${res.moved}，跳过 ${res.skipped}，失败 ${res.failed}` : '整理失败';
+    });
+}
+
 async function loadNotifyConfig() {
-    const cfg = await apiCall('GET', '/api/config');
-    if (!cfg) return;
+    const res = await apiCall('GET', '/api/notify/config');
+    const n = res && res.notify || {};
+    const ch = n.channels || {};
     const tab = document.getElementById('tab-notify');
-    const notify = cfg.notify || {};
     tab.innerHTML = `
         <div class="section">
             <h2>通知配置</h2>
-            <p>QQ webhook: <code>${escapeHtml(notify.qq && notify.qq.url || '未配置')}</code></p>
-            <p>飞牛 webhook: <code>${escapeHtml(notify.feiniu && notify.feiniu.url || '未配置')}</code></p>
-            <p style="margin-top:12px;">
-                <button class="btn" onclick="testNotify()">发送测试通知</button>
-            </p>
+            <label><input type="checkbox" id="notify-enabled" ${n.enabled ? 'checked' : ''}> 启用通知</label><br>
+            <label><input type="checkbox" id="notify-success" ${n.onSuccess !== false ? 'checked' : ''}> 备份成功通知</label><br>
+            <label><input type="checkbox" id="notify-failure" ${n.onFailure !== false ? 'checked' : ''}> 备份失败通知</label><br>
+            <label><input type="checkbox" id="notify-nosource" ${n.onNoSource !== false ? 'checked' : ''}> 无启用备份源也通知</label>
+            <div class="form-group"><label>QQ Webhook URL</label><input type="text" id="notify-qq-url" value="${escapeHtml(ch.qq && ch.qq.url || '')}"></div>
+            <label><input type="checkbox" id="notify-qq-enabled" ${ch.qq && ch.qq.enabled ? 'checked' : ''}> 启用 QQ</label>
+            <div class="form-group"><label>飞牛 Webhook URL</label><input type="text" id="notify-feiniu-url" value="${escapeHtml(ch.feiniu && ch.feiniu.url || '')}"></div>
+            <label><input type="checkbox" id="notify-feiniu-enabled" ${ch.feiniu && ch.feiniu.enabled ? 'checked' : ''}> 启用飞牛</label>
+            <p class="hint">邮件通道 v1.1.0 暂未启用，建议先使用 QQ 或飞牛 webhook。</p>
+            <button class="btn" onclick="saveNotifyConfig()">保存通知配置</button>
+            <button class="btn btn-secondary" onclick="testNotify()">发送测试</button>
             <p id="notify-test-result" style="margin-top:8px;"></p>
-        </div>
-    `;
+        </div>`;
+}
+
+async function saveNotifyConfig() {
+    const notify = {
+        enabled: document.getElementById('notify-enabled').checked,
+        onSuccess: document.getElementById('notify-success').checked,
+        onFailure: document.getElementById('notify-failure').checked,
+        onNoSource: document.getElementById('notify-nosource').checked,
+        channels: {
+            qq: { enabled: document.getElementById('notify-qq-enabled').checked, url: document.getElementById('notify-qq-url').value },
+            feiniu: { enabled: document.getElementById('notify-feiniu-enabled').checked, url: document.getElementById('notify-feiniu-url').value },
+            email: { enabled: false, smtp: '', user: '', note: 'v1.1.0 暂未启用邮件发送' }
+        }
+    };
+    const res = await apiCall('POST', '/api/notify/config', { notify });
+    if (res && res.ok) showToast('通知配置已保存', 'success');
 }
 
 async function testNotify() {
     const res = await apiCall('POST', '/api/notify/test', { message: '[Agent 备份] 测试通知 - ' + new Date().toLocaleString() });
-    document.getElementById('notify-test-result').textContent = res && res.ok ? '✅ 通知已发送' : ('❌ 失败: ' + (res && res.error || '未知'));
+    const el = document.getElementById('notify-test-result');
+    if (el) el.textContent = res && res.ok ? '✅ 通知已发送' : ('❌ 失败: ' + (res && (res.error || JSON.stringify(res.results)) || '未知'));
+}
+
+function showModalHtml(title, html) {
+    let m = document.getElementById('modal-dynamic');
+    if (!m) {
+        document.body.insertAdjacentHTML('beforeend', '<div id="modal-dynamic" class="modal-overlay"><div class="modal" style="max-width:820px;"><h3 id="modal-dynamic-title"></h3><div id="modal-dynamic-body"></div><div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal(\'modal-dynamic\')">关闭</button></div></div></div>');
+        m = document.getElementById('modal-dynamic');
+    }
+    document.getElementById('modal-dynamic-title').textContent = title;
+    document.getElementById('modal-dynamic-body').innerHTML = html;
+    m.classList.add('show');
 }
 
 function escapeHtml(str) {
@@ -1093,6 +1305,8 @@ function loadAll() {
     loadSources();
     loadConfigUI();
     loadInfo(); // v1.0.17 新增
+    loadBackupFiles();
+    loadStorageInfo();
 }
 
 // v1.0.16 改：先调 /api/auth/status 判断是否需要首次设置密码
