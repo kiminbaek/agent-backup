@@ -5,7 +5,8 @@ const logger = require('./logger');
 const backup = require('./backup-engine');
 const notifier = require('./notifier');
 
-const CONFIG_FILE = '/vol3/@appdata/com.dustinky.agentbackup/config/config.json';
+// v1.0.20 改：CONFIG_FILE 走 lib/backup-engine 的 CONFIG_FILE 常量（不再写死）
+const { CONFIG_FILE } = require('./backup-engine');
 
 let task = null;
 
@@ -65,7 +66,10 @@ function updateSchedule(newSchedule) {
     }
     const config = loadConfig();
     config.schedule = newSchedule;
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+    // v1.0.20 改：atomic write（tmp + rename）
+    const tmp = CONFIG_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(config, null, 2));
+    fs.renameSync(tmp, CONFIG_FILE);
     if (task) {
         stop();
         start();

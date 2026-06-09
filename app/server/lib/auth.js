@@ -1,25 +1,26 @@
-// auth.js：scrypt 131072 + 加盐 + 失败锁
+// auth.js：scrypt 131072 + 加盐 + 失败锁（v1.0.20 修：密码强度统一 ≥8，setPassword 长度校验，错误信息不暴露锁定，atomic write）
 const crypto = require('crypto');
 const fs = require('fs');
-const path = require('path');
 
 const AUTH_FILE = '/vol3/@appdata/com.dustinky.agentbackup/auth.json';
 const MAX_FAILED = 5;
 const LOCK_TIME = 5 * 60 * 1000; // 5 分钟
-const SCRYPT_OPTS = { N: 131072, r: 8, p: 1, maxmem: 1024 * 1024 * 1024 }; // scrypt 强度（maxmem 防 OpenSSL 3.x 默认 32MB 限制）
+const MIN_PASSWORD_LEN = 8; // v1.0.20 改：统一密码强度 ≥8
+const SCRYPT_OPTS = { N: 131072, r: 8, p: 1, maxmem: 1024 * 1024 * 1024 };
+
+// v1.0.20 改：atomic write 防止极端崩溃导致 auth.json 损坏
+function save(auth) {
+    const tmp = AUTH_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(auth, null, 2));
+    try { fs.chmodSync(tmp, 0o600); } catch (_) { /* ignore */ }
+    fs.renameSync(tmp, AUTH_FILE);
+}
 
 function load() {
     if (!fs.existsSync(AUTH_FILE)) {
         throw new Error(`auth.json 不存在: ${AUTH_FILE}`);
     }
     return JSON.parse(fs.readFileSync(AUTH_FILE, 'utf8'));
-}
-
-function save(auth) {
-    fs.writeFileSync(AUTH_FILE, JSON.stringify(auth, null, 2));
-    try {
-        fs.chmodSync(AUTH_FILE, 0o600);
-    } catch (e) { /* ignore */ }
 }
 
 // v1.0.16 新增：获取认证状态（UI 首次判断用）
@@ -32,10 +33,10 @@ function getAuthStatus() {
     };
 }
 
-// v1.0.16 新增：首次设置密码（不需要旧密码验证）
+// v1.0.16 新增：首次设置密码（不需要旧密码验证，v1.0.20 改：最低 8 字符）
 async function setupPassword(newPassword) {
-    if (!newPassword || newPassword.length < 4) {
-        throw new Error('密码长度至少 4 个字符');
+    if (!newPassword || newPassword.length < MIN_PASSWORD_LEN) {
+        throw new Error(`密码长度至少 ${MIN_PASSWORD_LEN} 个字符`);
     }
     const auth = load();
     if (auth.passwordHash) {
@@ -62,6 +63,10 @@ function scryptHash(password, saltHex) {
 }
 
 async function setPassword(newPassword) {
+    // v1.0.20 修：统一密码强度校验
+    if (!newPassword || newPassword.length < MIN_PASSWORD_LEN) {
+        throw new Error(`密码长度至少 ${MIN_PASSWORD_LEN} 个字符`);
+    }
     const hash = await scryptHash(newPassword);
     const auth = {
         passwordHash: hash,
@@ -82,10 +87,10 @@ async function verifyPassword(password) {
         throw new Error('请先设置密码');
     }
 
-    // 检查是否锁定
+    // 检查是否锁定（v1.0.20 改：锁定时统一返 "密码错误"，不暴露剩余时间，防计时攻击）
     if (auth.lockUntil > now) {
-        const remaining = Math.ceil((auth.lockUntil - now) / 1000);
-        throw new Error(`账号锁定中，请 ${remaining} 秒后再试`);
+        save({ ...auth }); // 维持锁定状态（不累加失败次数）
+        return false;
     }
 
     // 验证密码

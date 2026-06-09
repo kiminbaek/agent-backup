@@ -1,17 +1,33 @@
-// routes/backup.js：触发备份、列出备份
+// routes/backup.js：触发备份、列出备份、状态查询、保留策略
 const express = require('express');
 const router = express.Router();
 const fs = require('fs');
+// v1.0.20 改：CONFIG_FILE 走常量
+const { CONFIG_FILE } = require('../lib/backup-engine');
 const auth = require('../lib/auth');
 const backup = require('../lib/backup-engine');
 
 // v1.0.17 改：统一使用 lib/auth 的 requireToken 中间件
 const requireAuth = auth.requireToken;
+const STATUS_FILE = '/vol3/@appdata/com.dustinky.agentbackup/tmp/backup_status.json'; // v1.0.20 加：备份进度状态文件
+
+// v1.0.20 新增：GET /api/backup/status：查询当前备份进度
+router.get('/status', requireAuth, (req, res) => {
+    try {
+        if (!fs.existsSync(STATUS_FILE)) {
+            return res.json({ running: false });
+        }
+        const status = JSON.parse(fs.readFileSync(STATUS_FILE, 'utf8'));
+        res.json({ running: status.percent < 100, ...status });
+    } catch (e) {
+        res.json({ running: false, error: e.message });
+    }
+});
 
 // POST /api/backup/run：手动触发备份
 router.post('/run', requireAuth, async (req, res) => {
     try {
-        const config = JSON.parse(fs.readFileSync('/vol3/@appdata/com.dustinky.agentbackup/config/config.json', 'utf8'));
+        const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
         const result = await backup.runBackup(config.sources || []);
         res.json(result);
     } catch (e) {

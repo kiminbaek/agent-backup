@@ -1,5 +1,5 @@
 // restore.js：原子恢复（先 dry-run → 二次确认 → rsync 恢复）
-const { spawn, execSync } = require('child_process');
+const { spawn } = require('child_process'); // v1.0.20 修：删除未使用的 execSync
 const fs = require('fs');
 const path = require('path');
 const logger = require('./logger');
@@ -46,8 +46,8 @@ async function restore(id, targetPath) {
     if (!item) throw new Error(`备份不存在: ${id}`);
     if (!fs.existsSync(item.archive)) throw new Error(`归档文件丢失: ${item.archive}`);
 
-    // 3. 解压到临时目录
-    const tmpDir = path.join('/vol3/@appdata/com.dustinky.agentbackup/tmp', `restore_${id}_${Date.now()}`);
+    // 3. 解压到临时目录（v1.0.20 修：tmpDir 加 PID 防并发冲突）
+    const tmpDir = path.join('/vol3/@appdata/com.dustinky.agentbackup/tmp', `restore_${id}_${process.pid}_${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
 
     try {
@@ -83,7 +83,8 @@ async function restore(id, targetPath) {
     } finally {
         // 清理临时目录
         try {
-            execSync(`rm -rf ${tmpDir}`);
+            // v1.0.20 修：用 fs.rmSync 替代 execSync('rm -rf')，避免 shell 注入
+            fs.rmSync(tmpDir, { recursive: true, force: true });
         } catch (e) { /* ignore */ }
     }
 }

@@ -88,6 +88,7 @@ setup() {
     chown -R root:root "${APP_DATA_DIR}" 2>/dev/null || true
     chmod 700 "${APP_DATA_DIR}"
     chmod 700 "${APP_DATA_DIR}/backups"
+    chmod 700 "${APP_DATA_DIR}/tmp" # v1.0.20 加：tmp 也收 700
 
     # 初始化 auth.json（首次装机）
     if [ ! -f "${APP_DATA_DIR}/auth.json" ]; then
@@ -144,15 +145,29 @@ EOF
     log "INFO" "==== setup 完成 ===="
 }
 
-# ============ install_deps 函数（v2 - 预打包 node_modules）============
+# ============ install_deps 函数（v3 - 预打包 + npm install 兜底）============
 # v1.0.10 改：fpk 内预打包 node_modules，cmd/main 只校验完整性
-# 原因：npm 10.9.3 @npmcli/arborist Tracker "idealTree" already exists 错误
-#       在 fnOS 装机环境下无法稳定触发，改为预打包（M188）
+# v1.0.20 改：发现 v1.0.19 fpk 没预打包依赖时也能跑（v1.0.20 走 npm install 兜底）
+#   原因：v1.0.19 fpk 漏打包 node_modules，v1.0.20 装上后启动失败
+#   解决：install_deps() 检测到缺失时回退到 npm install（M188 修法）
 install_deps() {
     # 检查 node_modules 是否存在
     if [ ! -d "${SERVER_DIR}/node_modules" ]; then
-        log "ERROR" "node_modules 缺失！fpk 应预打包依赖，**请**联**系**开**发**者**"
-        return 1
+        log "WARN" "node_modules 缺失，尝试 npm install 兜底..."
+        if command -v npm >/dev/null 2>&1; then
+            (cd "${SERVER_DIR}" && npm install --omit=dev --no-audit --no-fund --prefer-offline 2>&1 | head -20) | while read line; do
+                log "INFO" "npm: $line"
+            done
+            if [ -d "${SERVER_DIR}/node_modules" ]; then
+                log "INFO" "npm install 兜底成功"
+            else
+                log "ERROR" "npm install 失败，请检查网络"
+                return 1
+            fi
+        else
+            log "ERROR" "node_modules 缺失且无 npm 可用，**请**联**系**开**发**者**"
+            return 1
+        fi
     fi
 
     # 检查关键依赖（express）是否在
@@ -166,7 +181,7 @@ install_deps() {
         return 1
     fi
 
-    log "INFO" "node_modules 预打包就绪（express + node-cron），跳过 npm install"
+    log "INFO" "node_modules 就绪（express + node-cron）"
     return 0
 }
 
@@ -206,7 +221,7 @@ start() {
     echo "${pid}" > "${PID_FILE}"
     log "INFO" "Node.js PID=${pid}，已写入 ${PID_FILE}"
 
-    # 第 5 步：等待启动验证
+    # 第 5 步：等待启动验证（v1.0.20 修：之前注释是"第 5 步：启动 node server"，两个"第 5 步"重复）
     sleep 3
     if ! kill -0 "${pid}" 2>/dev/null; then
         log "ERROR" "Node.js 进程已退出，请查看 ${SERVER_LOG}"

@@ -5,9 +5,9 @@ set -e
 APP_NAME="com.dustinky.agentbackup"
 APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
 
-# 创建用户（如果不存在）
-if ! id "agent_backup" >/dev/null 2>&1; then
-    useradd -r -s /bin/false agent_backup 2>/dev/null || true
+# 创建用户（如果不存在，v1.0.20 修：与 config/privilege 的 username 一致）
+if ! id "com.dustinky.agentbackup" >/dev/null 2>&1; then
+    useradd -r -s /bin/false com.dustinky.agentbackup 2>/dev/null || true
 fi
 
 # 创建数据目录

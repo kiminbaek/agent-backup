@@ -156,3 +156,6 @@
 - **v1.0.0**：骨架版本，**不**装机（仅本地 shell 验证）
 - **v1.0.1-v1.0.2**：manifest 字段修复（fnOS 装机 nil pointer）
 - **v1.0.16-v1.0.19**：装机成功 + 登录成功 + 备份成功
+- **v1.0.20**：findLatestBackup link-dest 失效修复（磁盘爆炸 BUG）+ 23 项安全/稳定优化 + 8 项 UI 完善 + /api/backup/status 真进度
+- **v1.0.21**：install_deps 加 npm install 兜底（v1.0.20 fpk 漏打包 node_modules 启动失败）
+- **v1.0.22**：Token Modal（显示/复制）+ AbortController 真进度轮询 + 装 v1.0.21 后升级

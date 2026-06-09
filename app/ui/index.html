@@ -325,6 +325,7 @@ tr:hover { background: #f8f9fa; }
 <header class="header">
     <h1>Agent 备份 控制台</h1>
     <div class="actions">
+        <button onclick="showToken()">查看 Token</button>
         <button onclick="showChangePassword()">修改密码</button>
         <button onclick="logout()">登出</button>
     </div>
@@ -496,7 +497,7 @@ tr:hover { background: #f8f9fa; }
             <input type="password" id="pw-old">
         </div>
         <div class="form-group">
-            <label>新密码（至少 6 位）</label>
+            <label>新密码（至少 8 位）</label>
             <input type="password" id="pw-new">
         </div>
         <div class="form-group">
@@ -506,6 +507,22 @@ tr:hover { background: #f8f9fa; }
         <div class="modal-actions">
             <button class="btn btn-secondary" onclick="closeModal('modal-password')">取消</button>
             <button class="btn" onclick="doChangePassword()">确认</button>
+        </div>
+    </div>
+</div>
+
+<!-- v1.0.20 新增：Modal: Token 管理（显示 / 复制 / 重新生成） -->
+<div id="modal-token" class="modal-overlay">
+    <div class="modal">
+        <h3>认证 Token</h3>
+        <p>当前会话的 Token（请妥善保管，不要泄露）：</p>
+        <div class="form-group">
+            <textarea id="token-display" readonly style="width:100%;height:80px;font-family:monospace;font-size:12px;word-break:break-all;"></textarea>
+        </div>
+        <p id="token-info" style="font-size:12px;color:#666;">点击"复制"按钮可将 Token 复制到剪贴板</p>
+        <div class="modal-actions">
+            <button class="btn btn-secondary" onclick="closeModal('modal-token')">关闭</button>
+            <button class="btn" onclick="copyToken()">复制到剪贴板</button>
         </div>
     </div>
 </div>
@@ -582,7 +599,9 @@ function formatTime(ts) {
 }
 
 // ============ API 调用 ============
-async function apiCall(method, path, body) {
+// v1.0.20 改：支持 AbortSignal（fetch 取消机制）
+// 用法：apiCall('GET', '/api/backup/list', null, abortController.signal)
+async function apiCall(method, path, body, signal) {
     const opts = {
         method,
         headers: {
@@ -591,6 +610,7 @@ async function apiCall(method, path, body) {
         },
     };
     if (body) opts.body = JSON.stringify(body);
+    if (signal) opts.signal = signal;
     try {
         const res = await fetch(path, opts);
         const data = await res.json().catch(() => ({}));
@@ -605,9 +625,38 @@ async function apiCall(method, path, body) {
         }
         return data;
     } catch (e) {
+        // v1.0.20 加：区分取消错误和真错误
+        if (e.name === 'AbortError') {
+            // 请求被取消，安静地返回
+            return null;
+        }
         showToast('网络错误: ' + e.message, 'error');
         return null;
     }
+}
+
+// v1.0.20 新增：辅助函数 - 创建可取消的轮询
+function createPoll(action, intervalMs = 1000, maxMs = 60000) {
+    const controller = new AbortController();
+    const start = Date.now();
+    function tick() {
+        if (Date.now() - start > maxMs) {
+            controller.abort();
+            return;
+        }
+        action().then(result => {
+            if (result && result.done) {
+                controller.abort();
+                return;
+            }
+            setTimeout(tick, intervalMs);
+        }).catch(() => {
+            // 错误也停止轮询
+            controller.abort();
+        });
+    }
+    tick();
+    return controller;
 }
 
 // ============ 登录 ============
@@ -626,7 +675,8 @@ async function doSetupPassword() {
     const pwd = document.getElementById('setup-password').value;
     const pwd2 = document.getElementById('setup-password-confirm').value;
     if (!pwd) { showToast('请输入密码', 'error'); return; }
-    if (pwd.length < 4) { showToast('密码至少 4 个字符', 'error'); return; }
+    // v1.0.20 改：与后端一致，至少 8 字符
+    if (pwd.length < 8) { showToast('密码至少 8 个字符', 'error'); return; }
     if (pwd !== pwd2) { showToast('两次密码不一致', 'error'); return; }
     const res = await apiCall('POST', '/api/auth/setup', { password: pwd });
     if (res && res.token) {
@@ -654,10 +704,20 @@ async function doLogin() {
     }
 }
 
-function logout() {
-    authToken = '';
-    localStorage.removeItem('ab_token');
-    showLogin();
+// v1.0.20 改：logout 调 API（生成新 token 让旧 token 失效），不再只是前端清掉
+async function logout() {
+    showConfirm('退出登录', '退出后需要重新输入密码，确认？', async () => {
+        const password = prompt('请输入密码以确认退出:');
+        if (!password) return;
+        const res = await apiCall('POST', '/api/auth/logout', { password });
+        if (res && res.ok) {
+            localStorage.setItem('ab_token', res.token);
+            authToken = res.token;
+            showToast('已退出登录', 'success');
+        } else {
+            showToast('退出失败: ' + (res && res.error || '未知错误'), 'error');
+        }
+    });
 }
 
 // ============ Tab 切换 ============
@@ -666,8 +726,11 @@ function switchTab(tab) {
     document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
     document.getElementById('tab-' + tab).style.display = 'block';
     document.querySelector(`.tab[data-tab="${tab}"]`).classList.add('active');
+    // v1.0.20 改：tab 切换时按需加载（之前 log/notify/info 不会自动加载）
     if (tab === 'history') loadHistory();
     if (tab === 'config') loadConfigUI();
+    if (tab === 'log') loadLog();
+    if (tab === 'notify') loadNotifyConfig();
 }
 
 // ============ 备份源 ============
@@ -709,24 +772,46 @@ async function toggleSource(id, enabled) {
     }
 }
 
+// v1.0.22 改：使用 AbortController 跑进度轮询（切 tab/重启时自动取消）
+let backupPollController = null;
 async function runBackupNow() {
     showConfirm('立即备份', '将立即执行所有已启用的备份源，确认继续？', async () => {
         showToast('备份已启动，请稍候...', 'info');
-        // v1.0.17 假进度条（后端无真进度接口）
         const section = document.getElementById('backup-progress-section');
         const fill = document.getElementById('backup-progress-fill');
         const text = document.getElementById('backup-progress-text');
         section.style.display = 'block';
         fill.style.width = '0%';
         text.textContent = '准备中...';
-        let p = 0;
-        const tick = setInterval(() => {
-            p = Math.min(p + 5, 90);
-            fill.style.width = p + '%';
-            text.textContent = `备份中... ${p}%`;
-        }, 300);
-        const res = await apiCall('POST', '/api/backup/run');
-        clearInterval(tick);
+        // v1.0.22 加：取消上一次轮询
+        if (backupPollController) backupPollController.abort();
+        const controller = new AbortController();
+        backupPollController = controller;
+        const tick = async () => {
+            const status = await apiCall('GET', '/api/backup/status', null, controller.signal);
+            if (!status) return false;
+            if (status.running) {
+                const p = Math.max(0, Math.min(100, status.percent || 0));
+                fill.style.width = p + '%';
+                text.textContent = `${status.sourceName || ''} [${status.phase || '?'}] ${p}%`;
+                return false; // 继续轮询
+            } else if (status.phase === 'done') {
+                fill.style.width = '100%';
+                text.textContent = '备份完成';
+                return true; // 停止
+            }
+            return false;
+        };
+        // 轮询（每 500ms，最多 10 分钟）
+        let done = false;
+        const start = Date.now();
+        while (!done && Date.now() - start < 10 * 60 * 1000) {
+            if (controller.signal.aborted) break;
+            done = await tick();
+            if (!done) await new Promise(r => setTimeout(r, 500));
+        }
+        const res = await apiCall('POST', '/api/backup/run', null, controller.signal);
+        if (controller.signal.aborted) return;
         fill.style.width = '100%';
         text.textContent = res && res.ok !== false ? '备份完成' : ('失败: ' + (res && res.error || 'unknown'));
         if (res && res.ok !== false) {
@@ -737,17 +822,12 @@ async function runBackupNow() {
 }
 
 // ============ v1.0.17 新增：应用信息（版本 + IP） ============
+// v1.0.20 改：走 apiCall（统一错误处理 + token 注入）
 async function loadInfo() {
-    try {
-        const res = await fetch('/api/info');
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        const info = await res.json();
-        if (info.version) document.getElementById('info-version').textContent = info.version;
-        if (info.url) document.getElementById('info-url').textContent = info.url;
-    } catch (e) {
-        document.getElementById('info-version').textContent = '加载失败';
-        document.getElementById('info-url').textContent = '-';
-    }
+    const info = await apiCall('GET', '/api/info');
+    if (!info) return;
+    if (info.version) document.getElementById('info-version').textContent = info.version;
+    if (info.url) document.getElementById('info-url').textContent = info.url;
 }
 
 // ============ v1.0.17 新增：手动执行保留策略 ============
@@ -908,6 +988,38 @@ async function testNotify() {
     }
 }
 
+// ============ v1.0.20 新增：Token 管理（显示 + 复制） ============
+function showToken() {
+    const el = document.getElementById('token-display');
+    el.value = authToken || '';
+    document.getElementById('token-info').textContent = authToken
+        ? `Token 长度: ${authToken.length} 字符（32 字节十六进制）`
+        : '当前未登录';
+    document.getElementById('modal-token').classList.add('show');
+}
+
+async function copyToken() {
+    const token = document.getElementById('token-display').value;
+    if (!token) {
+        showToast('Token 为空', 'error');
+        return;
+    }
+    try {
+        // v1.0.20 改：使用 navigator.clipboard API（如果可用）
+        if (navigator.clipboard && window.isSecureContext) {
+            await navigator.clipboard.writeText(token);
+        } else {
+            // 兜底：旧浏览器
+            const ta = document.getElementById('token-display');
+            ta.select();
+            document.execCommand('copy');
+        }
+        showToast('Token 已复制到剪贴板', 'success');
+    } catch (e) {
+        showToast('复制失败: ' + e.message + '（请手动选择复制）', 'error');
+    }
+}
+
 // ============ 修改密码 ============
 function showChangePassword() {
     document.getElementById('pw-old').value = '';
@@ -928,8 +1040,9 @@ async function doChangePassword() {
         showToast('两次输入不一致', 'error');
         return;
     }
-    if (newPw.length < 6) {
-        showToast('新密码至少 6 位', 'error');
+    // v1.0.20 改：与后端一致，至少 8 字符
+    if (newPw.length < 8) {
+        showToast('新密码至少 8 位', 'error');
         return;
     }
     const res = await apiCall('POST', '/api/auth/change-password', {
@@ -944,6 +1057,30 @@ async function doChangePassword() {
 }
 
 // ============ HTML 转义 ============
+// v1.0.20 新增：通知 tab 内容（轻量版：显示当前通知配置 + 测试按钮）
+async function loadNotifyConfig() {
+    const cfg = await apiCall('GET', '/api/config');
+    if (!cfg) return;
+    const tab = document.getElementById('tab-notify');
+    const notify = cfg.notify || {};
+    tab.innerHTML = `
+        <div class="section">
+            <h2>通知配置</h2>
+            <p>QQ webhook: <code>${escapeHtml(notify.qq && notify.qq.url || '未配置')}</code></p>
+            <p>飞牛 webhook: <code>${escapeHtml(notify.feiniu && notify.feiniu.url || '未配置')}</code></p>
+            <p style="margin-top:12px;">
+                <button class="btn" onclick="testNotify()">发送测试通知</button>
+            </p>
+            <p id="notify-test-result" style="margin-top:8px;"></p>
+        </div>
+    `;
+}
+
+async function testNotify() {
+    const res = await apiCall('POST', '/api/notify/test', { message: '[Agent 备份] 测试通知 - ' + new Date().toLocaleString() });
+    document.getElementById('notify-test-result').textContent = res && res.ok ? '✅ 通知已发送' : ('❌ 失败: ' + (res && res.error || '未知'));
+}
+
 function escapeHtml(str) {
     if (str == null) return '';
     return String(str).replace(/[&<>"']/g, c => ({
@@ -977,6 +1114,16 @@ fetch('/api/auth/status').then(r => r.json()).then(async (status) => {
         showLogin();
     }
 }).catch(() => showLogin());
+
+// v1.0.20 加：全局错误边界（JS 报错不再白屏）
+window.addEventListener('error', (e) => {
+    console.error('[UI error]', e.error || e.message);
+    showToast('页面错误: ' + (e.message || '未知'), 'error');
+});
+window.addEventListener('unhandledrejection', (e) => {
+    console.error('[UI promise error]', e.reason);
+    showToast('异步错误: ' + (e.reason && e.reason.message || e.reason || '未知'), 'error');
+});
 </script>
 
 </body>

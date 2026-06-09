@@ -13,8 +13,8 @@ touch "${SERVER_LOG}" 2>/dev/null || true
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] config_callback: 配置后重启" | tee -a "${SERVER_LOG}"
 
-# 调用 main restart
-APP_INSTALL_DIR="/var/apps/${APP_NAME}"
+# 调用 main restart（v1.0.20 修：路径与 cmd/main 一致，TRIM_APPDEST 优先）
+APP_INSTALL_DIR="${TRIM_APPDEST:-/vol3/@appcenter/${APP_NAME}}"
 if [ -x "${APP_INSTALL_DIR}/cmd/main" ]; then
     "${APP_INSTALL_DIR}/cmd/main" restart 2>&1 | tee -a "${SERVER_LOG}" || true
 else

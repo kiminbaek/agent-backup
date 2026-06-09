@@ -7,7 +7,8 @@ const cron = require('../lib/cron-engine');
 const validators = require('../lib/validators');
 const logger = require('../lib/logger');
 
-const CONFIG_FILE = '/vol3/@appdata/com.dustinky.agentbackup/config/config.json';
+// v1.0.20 改：CONFIG_FILE 走 lib/backup-engine 的常量（不再写死）
+const { CONFIG_FILE } = require('../lib/backup-engine');
 
 // v1.0.17 改：统一使用 lib/auth 的 requireToken 中间件
 const requireAuth = auth.requireToken;
@@ -31,21 +32,20 @@ router.post('/', requireAuth, (req, res) => {
         return res.status(400).json({ error: 'config 必须是对象' });
     }
 
-    // 校验每个源
+    // v1.0.20 改：用 validateSourcesBatch 统一校验（id 唯一性 + 路径不重复）
     if (Array.isArray(newConfig.sources)) {
-        for (const s of newConfig.sources) {
-            if (s.enabled) {
-                const v = validators.validateSource(s);
-                if (!v.valid) {
-                    return res.status(400).json({ error: `源 ${s.id} 校验失败: ${v.errors.join(', ')}` });
-                }
-            }
+        const v = validators.validateSourcesBatch(newConfig.sources);
+        if (!v.valid) {
+            return res.status(400).json({ error: v.errors.join('; ') });
         }
     }
 
     try {
-        fs.writeFileSync(CONFIG_FILE, JSON.stringify(newConfig, null, 2));
-        fs.chmodSync(CONFIG_FILE, 0o600);
+        // v1.0.20 改：atomic write（tmp + rename）
+        const tmp = CONFIG_FILE + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(newConfig, null, 2));
+        try { fs.chmodSync(tmp, 0o600); } catch (_) { /* ignore */ }
+        fs.renameSync(tmp, CONFIG_FILE);
         // 重新加载 cron
         if (newConfig.schedule) {
             cron.updateSchedule(newConfig.schedule);

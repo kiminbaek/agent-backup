@@ -9,13 +9,43 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '1.0.19'; // v1.0.19 修复 fs.flockSync 不存在的备份失败
+const VERSION = '1.0.22'; // v1.0.22 改：Token Modal + AbortController 真进度 + install_deps 兜底（v1.0.20 37 项 + v1.0.21 依赖兜底）
 const UI_DIR = path.join(__dirname, '..', 'ui');
-const LOG_FILE = '/vol3/@appdata/com.dustinky.agentbackup/logs/server.log';
-
+const LOG_FILE = logger.SERVER_LOG;
 const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(UI_DIR, { index: 'index.html' }));
+
+// v1.0.20 改：IP 维度 rate limit（防 /api/auth/login 暴力破解）
+const rateLimitMap = new Map();
+function rateLimit(maxPerMinute, maxPerHour) {
+    return (req, res, next) => {
+        const ip = req.ip || req.connection.remoteAddress || 'unknown';
+        const now = Date.now();
+        const rec = rateLimitMap.get(ip) || { min: [], hour: [] };
+        rec.min = rec.min.filter(t => now - t < 60 * 1000);
+        rec.hour = rec.hour.filter(t => now - t < 60 * 60 * 1000);
+        if (rec.min.length >= maxPerMinute) {
+            return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+        }
+        if (rec.hour.length >= maxPerHour) {
+            return res.status(429).json({ error: '请求过于频繁，请稍后再试' });
+        }
+        rec.min.push(now);
+        rec.hour.push(now);
+        rateLimitMap.set(ip, rec);
+        // 定期清理过期 IP 记录
+        if (rateLimitMap.size > 1000) {
+            for (const [k, v] of rateLimitMap.entries()) {
+                if (v.min.length === 0 && v.hour.length === 0) rateLimitMap.delete(k);
+            }
+        }
+        next();
+    };
+}
+// 登录接口限流：10 次/分钟, 50 次/小时
+app.use('/api/auth/login', rateLimit(10, 50));
+app.use('/api/auth/setup', rateLimit(5, 20));
 
 // 健康检查（公开）
 app.get('/api/health', (req, res) => {
@@ -46,8 +76,15 @@ app.get('/api/log', auth.requireToken, (req, res) => {
         if (!fs.existsSync(LOG_FILE)) {
             return res.json({ ok: true, lines: [], total: 0 });
         }
-        const data = fs.readFileSync(LOG_FILE, 'utf8');
-        const allLines = data.split('\n').filter(l => l.length > 0);
+        // v1.0.20 改：大日志只读末尾 256KB（避免 readFileSync 卡死）
+        const stat = fs.statSync(LOG_FILE);
+        const fd = fs.openSync(LOG_FILE, 'r');
+        const start = Math.max(0, stat.size - 256 * 1024);
+        const buf = Buffer.alloc(stat.size - start);
+        fs.readSync(fd, buf, 0, buf.length, start);
+        fs.closeSync(fd);
+        const text = buf.toString('utf8');
+        const allLines = text.split('\n').filter(l => l.length > 0);
         const tail = allLines.slice(-lines);
         res.json({ ok: true, lines: tail, total: allLines.length });
     } catch (e) {
@@ -107,20 +144,26 @@ function main() {
     });
 }
 
-// 优雅退出
-process.on('SIGTERM', () => {
-    logger.info('收到 SIGTERM，准备退出');
-    cron.stop();
-    appdb.syncStatus('stop');
+// 优雅退出（v1.0.20 修：先等 DB 写完再退出，避免 SIGTERM 同步 DB 写不进去）
+async function gracefulExit(signal) {
+    logger.info(`收到 ${signal}，准备退出`);
+    try { cron.stop(); } catch (_) { /* ignore */ }
+    try {
+        const ok = await new Promise(resolve => {
+            // 200ms 限时写 DB
+            const t = setTimeout(() => resolve(false), 200);
+            try {
+                const result = appdb.syncStatus('stop');
+                clearTimeout(t);
+                resolve(result);
+            } catch (e) { clearTimeout(t); resolve(false); }
+        });
+        if (!ok) logger.warn('DB 状态同步超时，进程直接退出');
+    } catch (e) { /* ignore */ }
     process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    logger.info('收到 SIGINT，准备退出');
-    cron.stop();
-    appdb.syncStatus('stop');
-    process.exit(0);
-});
+}
+process.on('SIGTERM', () => gracefulExit('SIGTERM'));
+process.on('SIGINT', () => gracefulExit('SIGINT'));
 
 if (require.main === module) {
     main();

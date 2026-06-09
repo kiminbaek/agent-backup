@@ -4,9 +4,25 @@ const { URL } = require('url');
 const fs = require('fs');
 const logger = require('./logger');
 
-const CONFIG_FILE = '/vol3/@appdata/com.dustinky.agentbackup/config/config.json';
+// v1.0.20 改：CONFIG_FILE 走 lib/backup-engine 常量
+const { CONFIG_FILE } = require('./backup-engine');
 const SUPPRESS_WINDOW = 5 * 60 * 1000;
+const MAX_ALERTS_CACHE = 100; // v1.0.20 加：限制 Map 大小，防止内存泄露
 const recentAlerts = new Map();
+
+// v1.0.20 加：定期清理过期 alerts（每次 send 时顺手清）
+function trimAlerts() {
+    if (recentAlerts.size <= MAX_ALERTS_CACHE) return;
+    const now = Date.now();
+    for (const [k, t] of recentAlerts.entries()) {
+        if (now - t >= SUPPRESS_WINDOW) recentAlerts.delete(k);
+    }
+    // 兜底：超过上限按插入顺序删最旧的
+    while (recentAlerts.size > MAX_ALERTS_CACHE) {
+        const firstKey = recentAlerts.keys().next().value;
+        recentAlerts.delete(firstKey);
+    }
+}
 
 function postJson(urlStr, data) {
     return new Promise((resolve, reject) => {
@@ -55,9 +71,9 @@ async function send(channel, payload) {
             const res = await postJson(target.url, data);
             return res.status >= 200 && res.status < 300;
         } else if (channel === 'email') {
-            // 邮件降级（占位，集成 himalaya）
-            // TODO: 接入 himalaya CLI
-            return true;
+            // v1.0.20 修：email 暂时未集成，返 false（不再 silent true）
+            logger.warn('email 通道暂未集成，请使用 QQ 或飞牛 webhook');
+            return false;
         }
     } catch (e) {
         logger.warn(`notify ${channel} 失败: ${e.message}`);
@@ -69,7 +85,8 @@ async function send(channel, payload) {
 async function notify(payload) {
     if (!payload || typeof payload !== 'string') return false;
 
-    // 告警抑制：5 分钟内同类通知合并
+    // v1.0.20 改：先 trim 再检查抑制（防止 Map 永远增长）
+    trimAlerts();
     const key = payload.slice(0, 50);
     const lastSent = recentAlerts.get(key) || 0;
     if (Date.now() - lastSent < SUPPRESS_WINDOW) {

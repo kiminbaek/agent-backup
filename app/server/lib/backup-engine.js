@@ -9,6 +9,7 @@ const notifier = require('./notifier');
 
 const BACKUP_ROOT = '/vol3/@appdata/com.dustinky.agentbackup/backups';
 const META_FILE = path.join(BACKUP_ROOT, 'index.json');
+const CONFIG_FILE = '/vol3/@appdata/com.dustinky.agentbackup/config/config.json'; // v1.0.20 加：导出供 cron-engine/config.js 复用
 const LOCK_FILE = '/vol3/@appdata/com.dustinky.agentbackup/tmp/agent_backup.lock';
 const TMP_DIR = '/vol3/@appdata/com.dustinky.agentbackup/tmp';
 
@@ -74,7 +75,10 @@ function loadMeta() {
 }
 
 function saveMeta(meta) {
-    fs.writeFileSync(META_FILE, JSON.stringify(meta, null, 2));
+    // v1.0.20 改：atomic write（tmp + rename），极端崩溃下不损坏 index.json
+    const tmp = META_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(meta, null, 2));
+    fs.renameSync(tmp, META_FILE);
 }
 
 // sha256
@@ -122,13 +126,34 @@ async function checkDiskSpace(estimatedSize) {
     }
 }
 
-// 找最近一次 backup（--link-dest 源）
+// 找最近一次 backup 的 link-dest 目录（v1.0.20 修：之前返回 meta.path 是已被 fs.rmSync 删除的备份目录，导致 --link-dest 失效 = 每次都全量备份）
+// 修法：保留一个"link-dest 缓存目录"，把 tar.zst 解压到这里
+function getLinkDestCacheDir(sourceId) {
+    return path.join('/vol3/@appdata/com.dustinky.agentbackup/tmp', `link_dest_${sourceId}`);
+}
+
+async function extractForLinkDest(sourceId, archive) {
+    const cacheDir = getLinkDestCacheDir(sourceId);
+    // 清空旧缓存
+    try { fs.rmSync(cacheDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+    fs.mkdirSync(cacheDir, { recursive: true });
+    return new Promise((resolve, reject) => {
+        const child = spawn('tar', ['--zstd', '-xf', archive, '-C', cacheDir]);
+        child.on('error', reject);
+        child.on('close', code => {
+            if (code === 0) resolve(cacheDir);
+            else reject(new Error(`tar 解压失败 code=${code}`));
+        });
+    });
+}
+
 function findLatestBackup(sourceId) {
     const meta = loadMeta();
-    const candidates = meta.backups
+    const latest = meta.backups
         .filter(b => b.sourceId === sourceId && b.status === 'success')
-        .sort((a, b) => b.timestamp - a.timestamp);
-    return candidates.length > 0 ? candidates[0].path : null;
+        .sort((a, b) => b.timestamp - a.timestamp)[0];
+    if (!latest) return null;
+    return latest.archive; // 返回 tar.zst 路径（不再返回已删除的 backupDir）
 }
 
 // 单个源备份
@@ -145,6 +170,20 @@ async function backupOne(source) {
     const archive = `${backupDir}.tar.zst`;
     const latestBackup = findLatestBackup(source.id);
 
+    // v1.0.20 加：写进度状态（/api/backup/status 读这个文件）
+    function writeStatus(phase, percent) {
+        try {
+            fs.writeFileSync('/vol3/@appdata/com.dustinky.agentbackup/tmp/backup_status.json', JSON.stringify({
+                sourceId: source.id,
+                sourceName: source.name,
+                phase, // 'rsync' / 'tar' / 'sha256' / 'done' / 'error'
+                percent, // 0-100
+                startTime: ts.getTime(),
+            }));
+        } catch (_) { /* ignore */ }
+    }
+    writeStatus('start', 0);
+
     // 估算大小
     let estSize = 0;
     try {
@@ -154,24 +193,35 @@ async function backupOne(source) {
     }
     await checkDiskSpace(estSize);
 
-    // 1. rsync 增量到 backupDir
+    // 1. rsync 增量到 backupDir（v1.0.20 修：--link-dest 指向"缓存目录"，从上次 tar.zst 解压出来）
     fs.mkdirSync(backupDir, { recursive: true });
     const rsyncArgs = ['-a', '--delete'];
-    if (latestBackup) {
-        rsyncArgs.push('--link-dest', latestBackup);
+    if (latestBackup && fs.existsSync(latestBackup)) {
+        // 把上次的 tar.zst 解压到缓存目录作为 link-dest 源
+        try {
+            const linkDest = await extractForLinkDest(source.id, latestBackup);
+            rsyncArgs.push('--link-dest', linkDest);
+        } catch (e) {
+            logger.warn(`link-dest 解压失败，回退到无 link-dest: ${e.message}`);
+        }
     }
     rsyncArgs.push(source.path + '/', backupDir + '/');
 
     logger.info(`rsync 增量: ${source.path} → ${backupDir}`);
+    writeStatus('rsync', 30);
     await run('rsync', rsyncArgs);
+    writeStatus('rsync-done', 60);
 
     // 2. 打包 tar.zst
     logger.info(`tar.zst 压缩: ${backupDir} → ${archive}`);
+    writeStatus('tar', 70);
     await run('tar', ['--zstd', '-cf', archive, '-C', BACKUP_ROOT, id]);
+    writeStatus('tar-done', 85);
 
     // 3. sha256
     const sha = await sha256File(archive);
     logger.info(`sha256: ${sha}`);
+    writeStatus('sha256', 95);
 
     // 4. 记录元数据
     const meta = loadMeta();
@@ -195,6 +245,7 @@ async function backupOne(source) {
         fs.rmSync(backupDir, { recursive: true, force: true });
     } catch (e) { /* ignore */ }
 
+    writeStatus('done', 100);
     return { id, archive, sha256: sha, size: archiveSize };
 }
 
@@ -265,4 +316,4 @@ async function runBackup(sources) {
     }
 }
 
-module.exports = { runBackup, backupOne, applyRetention, loadMeta, sha256File };
+module.exports = { runBackup, backupOne, applyRetention, loadMeta, sha256File, CONFIG_FILE };
