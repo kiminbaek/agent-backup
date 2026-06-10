@@ -17,17 +17,26 @@ router.get('/verify/:id', requireAuth, async (req, res) => {
 });
 
 router.post('/preview', requireAuth, async (req, res) => {
-    const { id, targetPath } = req.body || {};
+    const { id, targetPath, password } = req.body || {};
     if (!id || !targetPath) return res.status(400).json({ error: '缺少 id 或 targetPath' });
-    try { res.json(await restore.preview(id, targetPath)); }
+    try { res.json(await restore.preview(id, targetPath, password)); }
     catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 router.post('/execute', requireAuth, async (req, res) => {
-    const { id, targetPath, confirm } = req.body || {};
+    const { id, targetPath, confirm, password } = req.body || {};
     if (!id || !targetPath) return res.status(400).json({ error: '缺少 id 或 targetPath' });
     if (confirm !== 'YES') return res.status(400).json({ error: '需在 confirm 字段输入 "YES" 二次确认' });
-    try { res.json(await restore.restore(id, targetPath)); }
+    try { res.json(await restore.restore(id, targetPath, password)); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+
+router.post('/file', requireAuth, async (req, res) => {
+    const { id, member, targetPath, confirm, password } = req.body || {};
+    if (!id || !member || !targetPath) return res.status(400).json({ error: '缺少 id/member/targetPath' });
+    if (confirm !== 'YES') return res.status(400).json({ error: '需在 confirm 字段输入 "YES" 二次确认' });
+    try { res.json(await restore.restoreFile(id, member, targetPath, password)); }
     catch (e) { res.status(500).json({ error: e.message }); }
 });
 

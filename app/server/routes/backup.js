@@ -75,7 +75,7 @@ router.get('/detail/:id', requireAuth, (req, res) => {
 });
 
 router.get('/files/:id', requireAuth, async (req, res) => {
-    try { res.json(await backup.listArchiveFiles(req.params.id, Math.min(parseInt(req.query.limit) || 500, 2000))); }
+    try { res.json(await backup.listArchiveFiles(req.params.id, Math.min(parseInt(req.query.limit) || 500, 2000), req.query.password || '')); }
     catch (e) { res.status(400).json({ error: e.message }); }
 });
 

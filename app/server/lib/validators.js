@@ -36,8 +36,10 @@ function validateSourcesBatch(sources) {
         if (idSet.has(s.id)) errors.push(`重复的 source id: ${s.id}`);
         idSet.add(s.id);
         if (s.path) {
-            if (pathSet.has(s.path)) errors.push(`重复的 source path: ${s.path}`);
-            pathSet.add(s.path);
+            const includeKey = Array.isArray(s.include) ? s.include.join('|') : '';
+            const pathKey = (s.mode === 'include' || includeKey) ? `${s.path}::${includeKey}` : s.path;
+            if (pathSet.has(pathKey)) errors.push(`重复的 source path/rules: ${s.path}`);
+            pathSet.add(pathKey);
         }
         const v = validateSource(s);
         if (!v.valid) errors.push(`源 ${s.id}: ${v.errors.join(', ')}`);

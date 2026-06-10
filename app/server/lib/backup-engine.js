@@ -61,6 +61,22 @@ function sha256File(filePath) {
     });
 }
 
+async function encryptArchive(filePath, password) {
+    if (!password) return { archive: filePath, encrypted: false };
+    const encPath = filePath + '.enc';
+    await run('openssl', ['enc', '-aes-256-cbc', '-pbkdf2', '-salt', '-in', filePath, '-out', encPath, '-pass', 'pass:' + password]);
+    try { fs.rmSync(filePath, { force: true }); } catch (_) { /* ignore */ }
+    return { archive: encPath, encrypted: true, encryption: 'openssl-aes-256-cbc-pbkdf2' };
+}
+
+async function decryptArchiveToTmp(item, password) {
+    if (!item.encrypted) return { archive: item.archive, cleanup: () => {} };
+    if (!password) throw new Error('该备份已加密，需要提供密码');
+    const out = path.join(storage.TMP_DIR, `decrypt_${item.id}_${process.pid}_${Date.now()}.tar.zst`);
+    await run('openssl', ['enc', '-d', '-aes-256-cbc', '-pbkdf2', '-in', item.archive, '-out', out, '-pass', 'pass:' + password]);
+    return { archive: out, cleanup: () => { try { fs.rmSync(out, { force: true }); } catch (_) { /* ignore */ } } };
+}
+
 function run(cmd, args, opts) {
     return new Promise((resolve, reject) => {
         const child = spawn(cmd, args, Object.assign({ stdio: 'pipe' }, opts || {}));
@@ -173,8 +189,22 @@ async function backupOne(source, config, options) {
 
     fs.mkdirSync(workDir, { recursive: true });
     const rsyncArgs = ['-a', '--delete'];
-    if (Array.isArray(source.exclude)) {
-        for (const ex of source.exclude.filter(Boolean)) rsyncArgs.push('--exclude', ex);
+    const includeRules = Array.isArray(source.include) ? source.include.filter(Boolean) : [];
+    const excludeRules = Array.isArray(source.exclude) ? source.exclude.filter(Boolean) : [];
+    if ((source.mode === 'include' || includeRules.length > 0) && !(includeRules.length === 1 && includeRules[0] === '*')) {
+        for (const inc of includeRules) {
+            rsyncArgs.push('--include', inc);
+            const parts = String(inc).split('/').filter(Boolean);
+            let prefix = '';
+            for (let i = 0; i < parts.length - 1; i++) {
+                prefix += parts[i] + '/';
+                rsyncArgs.push('--include', prefix);
+            }
+        }
+        for (const ex of excludeRules) rsyncArgs.push('--exclude', ex);
+        rsyncArgs.push('--exclude', '*');
+    } else {
+        for (const ex of excludeRules) rsyncArgs.push('--exclude', ex);
     }
     if (latestBackup) {
         try {
@@ -197,9 +227,20 @@ async function backupOne(source, config, options) {
 
     try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
 
+    let finalArchive = archive;
+    let encrypted = false;
+    let encryption = '';
+    if (options && options.encryptionPassword) {
+        setStatus('encrypt', 85);
+        const enc = await encryptArchive(archive, String(options.encryptionPassword));
+        finalArchive = enc.archive;
+        encrypted = enc.encrypted;
+        encryption = enc.encryption || '';
+    }
+
     setStatus('sha256', 90);
-    const sha256 = await sha256File(archive);
-    const stat = fs.statSync(archive);
+    const sha256 = await sha256File(finalArchive);
+    const stat = fs.statSync(finalArchive);
 
     const meta = loadMeta(config);
     const item = {
@@ -207,8 +248,8 @@ async function backupOne(source, config, options) {
         sourceId: source.id,
         sourceName: source.name,
         sourcePath: source.path,
-        archive,
-        path: archive,
+        archive: finalArchive,
+        path: finalArchive,
         size: stat.size,
         timestamp: ts.getTime(),
         sha256,
@@ -217,14 +258,17 @@ async function backupOne(source, config, options) {
         note: options && options.note || '',
         tags: options && options.tags || [],
         protected: !!(options && options.protected),
+        encrypted,
+        encryption,
+        sensitive: !!(source && source.sensitive),
         timeline,
         verifiedAt: Date.now(),
     };
     meta.backups.push(item);
     saveMeta(meta, config);
 
-    setStatus('done', 100, { id, archive });
-    logger.info(`备份完成: ${id} size=${stat.size} sha256=${sha256}`);
+    setStatus('done', 100, { id, archive: finalArchive, encrypted });
+    logger.info(`备份完成: ${id} size=${stat.size} sha256=${sha256} encrypted=${encrypted}`);
     return item;
 }
 
@@ -319,17 +363,26 @@ async function verifyBackup(id) {
     if (!item.archive || !fs.existsSync(item.archive)) throw new Error(`归档文件丢失: ${item.archive}`);
     const actual = await sha256File(item.archive);
     if (actual !== item.sha256) throw new Error(`sha256 校验失败: 期望 ${item.sha256}，实际 ${actual}`);
+    let readable = false, fileCount = 0, encrypted = !!item.encrypted;
+    if (!encrypted) {
+        const out = await run('tar', ['--zstd', '-tf', item.archive]);
+        fileCount = out.stdout.split('\n').filter(Boolean).length;
+        readable = true;
+    }
     item.verifiedAt = Date.now();
     saveMeta(meta, config);
-    return { ok: true, size: fs.statSync(item.archive).size, sha256: actual, verifiedAt: item.verifiedAt };
+    return { ok: true, size: fs.statSync(item.archive).size, sha256: actual, verifiedAt: item.verifiedAt, encrypted, readable, fileCount };
 }
 
-async function listArchiveFiles(id, limit) {
+async function listArchiveFiles(id, limit, password) {
     const item = getBackup(id);
     if (!item.exists) throw new Error(`归档文件丢失: ${item.archive}`);
-    const out = await run('tar', ['--zstd', '-tf', item.archive]);
-    const all = out.stdout.split('\n').filter(Boolean);
-    return { ok: true, id, total: all.length, limit: limit || 500, files: all.slice(0, limit || 500) };
+    const dec = await decryptArchiveToTmp(item, password);
+    try {
+        const out = await run('tar', ['--zstd', '-tf', dec.archive]);
+        const all = out.stdout.split('\n').filter(Boolean);
+        return { ok: true, id, encrypted: !!item.encrypted, total: all.length, limit: limit || 500, files: all.slice(0, limit || 500) };
+    } finally { dec.cleanup(); }
 }
 
 async function importArchive(tmpFile, opts) {
@@ -604,7 +657,7 @@ function estimateWizard(sourcePath, excludes) {
 
 module.exports = {
     CONFIG_FILE, STATUS_FILE,
-    loadMeta, saveMeta, sha256File, run,
+    loadMeta, saveMeta, sha256File, run, decryptArchiveToTmp,
     precheck, runBackup, backupOne, applyRetention,
     listBackups, getBackup, verifyBackup, listArchiveFiles,
     importArchive, trashBackup, setProtected, updateBackupMeta,

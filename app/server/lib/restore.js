@@ -43,10 +43,11 @@ function run(cmd, args, timeoutMs) {
 // v1.1.4 改：允许多个顶级条目（Bug #7）
 //   旧版硬要求只有 1 个顶级条目，第三方导入的归档无法恢复
 //   如果有多个顶级条目，返回 tmpDir 本身作为 extracted 路径
-async function extractToTmp(item) {
+async function extractToTmp(item, password) {
     const tmpDir = path.join(storage.TMP_DIR, `restore_${item.id}_${process.pid}_${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
-    await run('tar', ['--zstd', '-xf', item.archive, '-C', tmpDir]);
+    const dec = await backup.decryptArchiveToTmp(item, password);
+    try { await run('tar', ['--zstd', '-xf', dec.archive, '-C', tmpDir]); } finally { dec.cleanup(); }
     const children = fs.readdirSync(tmpDir);
     if (children.length === 0) throw new Error(`解压后目录为空: ${item.archive}`);
     const extracted = children.length === 1 ? path.join(tmpDir, children[0]) : tmpDir;
@@ -78,12 +79,12 @@ async function snapshotTarget(targetPath) {
     return { skipped: false, path: out, size, human: storage.humanSize(size) };
 }
 
-async function preview(id, targetPath) {
+async function preview(id, targetPath, password) {
     const v = validators.validateRestoreTarget(targetPath);
     if (!v.valid) throw new Error(v.error);
     const item = backup.getBackup(id);
     if (!item.exists) throw new Error(`归档文件丢失: ${item.archive}`);
-    const { tmpDir, extracted } = await extractToTmp(item);
+    const { tmpDir, extracted } = await extractToTmp(item, password);
     try {
         const out = await run('rsync', ['-ani', `${extracted}/`, `${targetPath}/`]);
         const lines = out.stdout.split('\n').filter(Boolean);
@@ -100,14 +101,14 @@ async function preview(id, targetPath) {
     }
 }
 
-async function restore(id, targetPath) {
+async function restore(id, targetPath, password) {
     const v = validators.validateRestoreTarget(targetPath);
     if (!v.valid) throw new Error(v.error);
     const item = backup.getBackup(id);
     if (!item.exists) throw new Error(`归档文件丢失: ${item.archive}`);
     await backup.verifyBackup(id);
     const snapshot = await snapshotTarget(targetPath);
-    const { tmpDir, extracted } = await extractToTmp(item);
+    const { tmpDir, extracted } = await extractToTmp(item, password);
     try {
         await run('rsync', ['-a', `${extracted}/`, `${targetPath}/`]);
         logger.info(`恢复完成: ${id} → ${targetPath}`);
@@ -118,4 +119,34 @@ async function restore(id, targetPath) {
     }
 }
 
-module.exports = { list, verify, preview, restore, riskLevel, snapshotTarget };
+
+function safeArchiveMember(member) {
+    if (!member || typeof member !== 'string') return false;
+    if (member.startsWith('/') || member.split('/').includes('..')) return false;
+    return true;
+}
+
+async function restoreFile(id, member, targetPath, password) {
+    if (!safeArchiveMember(member)) throw new Error('非法归档路径');
+    const item = backup.getBackup(id);
+    const v = validators.validateRestoreTarget(targetPath);
+    if (!v.valid) throw new Error(v.error);
+    const tmpDir = path.join(storage.TMP_DIR, `restore_file_${id}_${process.pid}_${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const dec = await backup.decryptArchiveToTmp(item, password);
+    try {
+        await run('tar', ['--zstd', '-xf', dec.archive, '-C', tmpDir, member]);
+        const src = path.join(tmpDir, member);
+        if (!fs.existsSync(src)) throw new Error('归档成员未解出');
+        fs.mkdirSync(targetPath, { recursive: true });
+        const out = path.join(targetPath, path.basename(member));
+        await run('rsync', ['-a', src, out]);
+        audit.write('restore.file', { id, member, targetPath, out });
+        return { ok: true, id, member, targetPath, out };
+    } finally {
+        dec.cleanup();
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+    }
+}
+
+module.exports = { list, verify, preview, restore, restoreFile, riskLevel, snapshotTarget };

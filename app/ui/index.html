@@ -555,6 +555,17 @@ tr:hover { background: #f8f9fa; }
         <pre id="templates-box" style="background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;margin-top:12px;">点击加载模板</pre>
     </div>
     <div class="section">
+        <h2>QwenPaw 深度适配</h2>
+        <p class="hint">通用分析任意 .qwenpaw 根目录，按记忆、配置、密钥、技能池、会话、日志缓存分类；勾选后生成备份源。</p>
+        <div class="form-group"><label>.qwenpaw 根目录</label><input type="text" id="qwenpaw-root" value="/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/" placeholder="/path/to/.qwenpaw/"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn" onclick="analyzeQwenPaw()">分析 QwenPaw</button>
+            <button class="btn btn-secondary" onclick="addQwenPawSelection()">加入当前配置</button>
+        </div>
+        <div id="qwenpaw-summary" class="hint">等待分析</div>
+        <div id="qwenpaw-groups" style="display:grid;gap:8px;margin-top:12px;"></div>
+    </div>
+    <div class="section">
         <h2>高级工具：手动扫描</h2>
         <p class="hint">独立扫描路径。日常备份请使用“备份向导”，扫描结果可直接勾选排除。</p>
         <div class="form-group"><label>扫描路径</label><input type="text" id="scan-path" placeholder="/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/"></div>
@@ -969,7 +980,8 @@ async function runBackupNow() {
     showConfirm('立即备份', '将立即执行所有已启用的备份源，确认继续？', async () => {
         setBackupButtonsDisabled(true);
         prepareBackupProgress('正在提交备份任务...');
-        const res = await apiCall('POST', '/api/backup/run', { manual: true });
+        const encryptionPassword = prompt('如需加密本次备份请输入密码；留空则不加密：') || '';
+        const res = await apiCall('POST', '/api/backup/run', { manual: true, encryptionPassword });
         if (res && res.started) {
             showToast('备份任务已提交，后台执行中', 'success');
             monitorBackupProgress();
@@ -1249,8 +1261,9 @@ function renderBackupFiles() {
             <td style="white-space:nowrap;">
                 <button class="btn btn-sm btn-secondary" onclick="showBackupDetail('${b.id}')">详情</button>
                 <button class="btn btn-sm btn-secondary" onclick="downloadBackup('${b.id}')">下载</button>
-                <button class="btn btn-sm btn-secondary" onclick="verifyBackup('${b.id}')">校验</button>
-                <button class="btn btn-sm btn-secondary" onclick="previewRestore('${b.id}')">预览恢复</button>
+                <button class="btn btn-sm btn-secondary" onclick="verifyBackup('${b.id}')">完整性校验</button>
+                <button class="btn btn-sm btn-secondary" onclick="previewRestore('${b.id}')">恢复演练</button>
+                <button class="btn btn-sm btn-secondary" onclick="previewRestoreToNewDir('${b.id}')">恢复到新目录</button>
                 <button class="btn btn-sm btn-secondary" onclick="editBackupMeta('${b.id}')">备注/标签</button>
                 <button class="btn btn-sm btn-secondary" onclick="protectBackup('${b.id}', ${!b.protected})">${b.protected ? '取消保护' : '保护'}</button>
                 <button class="btn btn-sm btn-danger" onclick="trashBackup('${b.id}')">回收</button>
@@ -1273,17 +1286,39 @@ async function showBackupDetail(id) {
         <p><b>归档路径:</b> <code>${escapeHtml(b.archive || '')}</code></p>
         <p><b>大小:</b> ${escapeHtml(b.sizeHuman || '')}</p>
         <p><b>sha256:</b> <code style="font-size:11px;word-break:break-all;">${escapeHtml(b.sha256 || '')}</code></p>
+        <p><b>加密:</b> ${b.encrypted ? '🔐 已加密' : '未加密'} ${b.sensitive ? ' / ⚠️ 敏感源' : ''}</p>
         <p><b>状态:</b> ${healthLabel(b)}</p>
         <button class="btn btn-secondary" onclick="loadArchiveFiles('${b.id}')">查看文件列表</button>
+        <button class="btn btn-secondary" onclick="restoreSingleFilePrompt('${b.id}')">单文件恢复</button>
         <pre id="archive-files-box" style="margin-top:10px;background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;">点击“查看文件列表”加载</pre>
     `);
 }
 
 async function loadArchiveFiles(id) {
-    const res = await apiCall('GET', '/api/backup/files/' + encodeURIComponent(id) + '?limit=500');
+    let url = '/api/backup/files/' + encodeURIComponent(id) + '?limit=500';
+    const pwd = prompt('如果备份已加密请输入密码；未加密可留空：') || '';
+    if (pwd) url += '&password=' + encodeURIComponent(pwd);
+    const res = await apiCall('GET', url);
     const box = document.getElementById('archive-files-box');
     if (!box) return;
     box.textContent = res && res.files ? `共 ${res.total} 个，显示前 ${res.files.length} 个\n` + res.files.join('\n') : '加载失败';
+}
+
+async function restoreSingleFilePrompt(id) {
+    const member = prompt('请输入要恢复的归档内文件路径（可先点查看文件列表复制）：');
+    if (!member) return;
+    const targetPath = prompt('请输入恢复目标目录（建议新目录）：', '/vol3/@appdata/com.dustinky.agentbackup/restore-single/');
+    if (!targetPath) return;
+    const password = prompt('如果备份已加密请输入密码；未加密可留空：') || '';
+    const yes = prompt('单文件恢复会写入目标目录。请输入 YES 确认');
+    if (yes !== 'YES') return;
+    const res = await apiCall('POST', '/api/restore/file', { id, member, targetPath, password, confirm: 'YES' });
+    if (res && res.ok) showToast('单文件恢复完成: ' + res.out, 'success');
+}
+
+function previewRestoreToNewDir(id) {
+    const safe = '/vol3/@appdata/com.dustinky.agentbackup/restore-test/' + id;
+    previewRestore(id, safe);
 }
 
 async function importBackupFile(file) {
@@ -1300,10 +1335,11 @@ async function importBackupFile(file) {
     });
 }
 
-async function previewRestore(id) {
-    const target = prompt('请输入恢复目标路径（建议先用测试目录，例如 /vol3/@appdata/restore-test）：');
+async function previewRestore(id, presetTarget) {
+    const target = presetTarget || prompt('请输入恢复目标路径（建议先用测试目录，例如 /vol3/@appdata/restore-test）：');
     if (!target) return;
-    const res = await apiCall('POST', '/api/restore/preview', { id, targetPath: target });
+    const password = prompt('如果备份已加密请输入密码；未加密可留空：') || '';
+    const res = await apiCall('POST', '/api/restore/preview', { id, targetPath: target, password });
     if (!res || !res.ok) return;
     showModalHtml('恢复预览', `
         <p>目标路径：<code>${escapeHtml(target)}</code></p>
@@ -1317,7 +1353,8 @@ async function previewRestore(id) {
 async function executeRestore(id, target) {
     const yes = prompt('高风险操作：请输入 YES 确认恢复');
     if (yes !== 'YES') return;
-    const res = await apiCall('POST', '/api/restore/execute', { id, targetPath: target, confirm: 'YES' });
+    const password = prompt('如果备份已加密请输入密码；未加密可留空：') || '';
+    const res = await apiCall('POST', '/api/restore/execute', { id, targetPath: target, password, confirm: 'YES' });
     if (res && res.ok) showToast('恢复完成', 'success');
 }
 
@@ -1459,7 +1496,8 @@ async function wizardRunBackup() {
     showConfirm('开始备份', `将备份 ${path}，并排除 ${excludes.length} 条规则。确认开始？`, async () => {
         setBackupButtonsDisabled(true);
         prepareBackupProgress('正在提交向导备份任务...');
-        const res = await apiCall('POST', '/api/backup/wizard/run', { path, excludes, name: '备份向导' });
+        const encryptionPassword = prompt('如需加密本次向导备份请输入密码；留空则不加密：') || '';
+        const res = await apiCall('POST', '/api/backup/wizard/run', { path, excludes, name: '备份向导', encryptionPassword });
         if (res && res.started) {
             showToast('备份任务已提交，后台执行中', 'success');
             monitorBackupProgress();
@@ -1605,6 +1643,8 @@ function previewSelectedTemplate() {
     document.getElementById('templates-box').textContent = JSON.stringify({
         name: t.name,
         path: t.path,
+        mode: t.mode || (t.include && t.include.length ? 'include' : 'exclude'),
+        include: t.include || [],
         exclude: t.excludes || []
     }, null, 2);
 }
@@ -1623,11 +1663,74 @@ async function addSelectedTemplateSource() {
     let id = baseId;
     let n = 2;
     while (sources.some(s => s.id === id)) id = `${baseId}-${n++}`;
-    sources.push({ id, name, path: t.path, enabled: true, include: ['*'], exclude: t.excludes || [] });
+    sources.push({ id, name, path: t.path, enabled: true, mode: t.mode || 'exclude', include: t.include || ['*'], exclude: t.excludes || [] });
     currentConfig.sources = sources;
     const res = await apiCall('POST', '/api/config', currentConfig);
     if (res && res.ok) {
         showToast('已添加备份源: ' + name, 'success');
+        renderSources(currentConfig.sources || []);
+        loadConfigUI();
+    }
+}
+
+let qwenpawAnalysis = null;
+
+async function analyzeQwenPaw() {
+    const root = document.getElementById('qwenpaw-root').value;
+    const res = await apiCall('POST', '/api/qwenpaw/analyze', { root });
+    if (!res || !res.ok) return;
+    qwenpawAnalysis = res;
+    const summary = document.getElementById('qwenpaw-summary');
+    summary.textContent = `发现 ${res.summary.agents} 个 Agent，${res.summary.groups} 个分类，敏感文件 ${res.summary.sensitiveFiles} 个`;
+    const riskName = { low: '低', medium: '中', high: '高', critical: '极高' };
+    document.getElementById('qwenpaw-groups').innerHTML = res.groups.map(g => `
+        <label style="display:block;border:1px solid #ddd;border-radius:6px;padding:10px;background:#fff;">
+            <div style="display:flex;gap:8px;align-items:center;">
+                <input type="checkbox" class="qwenpaw-group" value="${escapeHtml(g.id)}" ${g.defaultSelected ? 'checked' : ''}>
+                <b>${escapeHtml(g.name)}</b>
+                <span style="color:${g.risk === 'critical' || g.risk === 'high' ? '#c00' : '#666'};">风险：${riskName[g.risk] || g.risk}</span>
+            </div>
+            <div class="hint">${escapeHtml(g.desc || '')}</div>
+            <div class="hint">include: ${escapeHtml((g.include || []).join(', ') || '全部')}；exclude: ${escapeHtml((g.exclude || []).join(', ') || '无')}</div>
+            ${g.sensitiveHits && g.sensitiveHits.length ? `<div style="color:#c00;font-size:12px;">检测到敏感字段：${g.sensitiveHits.length} 处，建议加密备份</div>` : ''}
+        </label>
+    `).join('');
+}
+
+async function addQwenPawSelection() {
+    if (!qwenpawAnalysis) { showToast('请先分析 QwenPaw', 'error'); return; }
+    if (!currentConfig) await loadSources();
+    const checked = Array.from(document.querySelectorAll('.qwenpaw-group:checked')).map(x => x.value);
+    if (checked.length === 0) { showToast('请至少选择一个分类', 'error'); return; }
+    const groups = qwenpawAnalysis.groups.filter(g => checked.includes(g.id));
+    const include = [];
+    const exclude = [];
+    let highRisk = false;
+    groups.forEach(g => {
+        (g.include || []).forEach(x => { if (!include.includes(x)) include.push(x); });
+        (g.exclude || []).forEach(x => { if (!exclude.includes(x)) exclude.push(x); });
+        if (g.risk === 'high' || g.risk === 'critical') highRisk = true;
+    });
+    if (highRisk && !confirm('选择内容包含高敏感信息，建议加密备份。确认仍加入配置？')) return;
+    const sources = Array.isArray(currentConfig.sources) ? currentConfig.sources : [];
+    const baseId = 'qwenpaw-custom';
+    let id = baseId, n = 2;
+    while (sources.some(s => s.id === id)) id = `${baseId}-${n++}`;
+    sources.push({
+        id,
+        name: 'QwenPaw 自定义备份',
+        path: qwenpawAnalysis.root,
+        enabled: true,
+        mode: 'include',
+        include,
+        exclude,
+        sensitive: highRisk,
+        protected: highRisk
+    });
+    currentConfig.sources = sources;
+    const res = await apiCall('POST', '/api/config', currentConfig);
+    if (res && res.ok) {
+        showToast('已加入 QwenPaw 自定义备份源', 'success');
         renderSources(currentConfig.sources || []);
         loadConfigUI();
     }

@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '1.2.2'; // v1.2.2 修：模板下拉添加/后台备份/防重复点击
+const VERSION = '1.5.0'; // v1.5.0 恢复增强 + 安全增强
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -122,6 +122,7 @@ app.use('/api/history', require('./routes/history'));
 app.use('/api/notify', require('./routes/notify'));
 app.use('/api/storage', require('./routes/storage'));
 app.use('/api/audit', require('./routes/audit'));
+app.use('/api/qwenpaw', require('./routes/qwenpaw'));
 
 // 全局错误处理
 app.use((err, req, res, next) => {
