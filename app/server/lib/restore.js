@@ -16,24 +16,41 @@ async function verify(id) {
     return backup.verifyBackup(id);
 }
 
-function run(cmd, args) {
+// v1.1.4 改：加 timeout 保护，默认 30 分钟（Bug #3）
+function run(cmd, args, timeoutMs) {
     return new Promise((resolve, reject) => {
+        const ttl = typeof timeoutMs === 'number' ? timeoutMs : 30 * 60 * 1000;
         const child = spawn(cmd, args, { stdio: 'pipe' });
         let stdout = '', stderr = '';
+        let timedOut = false;
         child.stdout.on('data', d => stdout += d.toString());
         child.stderr.on('data', d => stderr += d.toString());
-        child.on('error', reject);
-        child.on('close', code => code === 0 ? resolve({ stdout, stderr }) : reject(new Error(`${cmd} 退出码=${code}: ${stderr.slice(-500)}`)));
+        const timer = setTimeout(() => {
+            timedOut = true;
+            child.kill('SIGTERM');
+            reject(new Error(`${cmd} 超时（${ttl}ms），已终止子进程`));
+        }, ttl);
+        child.on('error', err => { clearTimeout(timer); reject(err); });
+        child.on('close', code => {
+            clearTimeout(timer);
+            if (timedOut) return;
+            if (code === 0) resolve({ stdout, stderr });
+            else reject(new Error(`${cmd} 退出码=${code}: ${stderr.slice(-500)}`));
+        });
     });
 }
 
+// v1.1.4 改：允许多个顶级条目（Bug #7）
+//   旧版硬要求只有 1 个顶级条目，第三方导入的归档无法恢复
+//   如果有多个顶级条目，返回 tmpDir 本身作为 extracted 路径
 async function extractToTmp(item) {
     const tmpDir = path.join(storage.TMP_DIR, `restore_${item.id}_${process.pid}_${Date.now()}`);
     fs.mkdirSync(tmpDir, { recursive: true });
     await run('tar', ['--zstd', '-xf', item.archive, '-C', tmpDir]);
     const children = fs.readdirSync(tmpDir);
-    if (children.length !== 1) throw new Error(`解压目录异常: ${children.join(',')}`);
-    return { tmpDir, extracted: path.join(tmpDir, children[0]) };
+    if (children.length === 0) throw new Error(`解压后目录为空: ${item.archive}`);
+    const extracted = children.length === 1 ? path.join(tmpDir, children[0]) : tmpDir;
+    return { tmpDir, extracted };
 }
 
 

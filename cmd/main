@@ -61,11 +61,14 @@ sync_appcenter_status() {
     local target_status=$1
     log "INFO" "同步 appcenter 状态 → ${target_status}"
 
-    # 状态值映射
-    local db_status="${target_status}"
-    # is_stop 语义：t = 运行中可停止，f = 已停止（xray-proxy 也是 t+running）
+    # v1.2.1 修：按当前 fnOS 实测状态机写入
+    #   running + is_stop=true  => 应用中心显示「打开 / 停止 / 卸载」
+    #   stopped + is_stop=true  => 已停用状态（proc-guardian 当前实测记录）
+    local db_status="start"
+    [[ "${target_status}" == "running" ]] && db_status="running"
+    [[ "${target_status}" == "stopped" || "${target_status}" == "stop" ]] && db_status="stopped"
+
     local db_is_stop="true"
-    [[ "${target_status}" == "stopped" ]] && db_is_stop="false"
 
     # 用 sudo -u postgres 切换到 postgres 用户更新 DB
     sudo -u "${DB_USER}" psql -d "${DB_NAME}" -c \

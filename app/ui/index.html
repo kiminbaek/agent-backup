@@ -356,8 +356,22 @@ tr:hover { background: #f8f9fa; }
             <div class="empty">加载中...</div>
         </div>
         <div style="margin-top: 16px;">
-            <button class="btn" onclick="runBackupNow()">立即备份</button>
+            <button class="btn" onclick="showBackupWizard()">备份向导</button>
+            <button class="btn btn-secondary" id="btn-run-backup-now" onclick="runBackupNow()">跳过向导直接备份</button>
         </div>
+    </div>
+
+    <div class="section" id="backup-wizard" style="display:none;">
+        <h2>备份向导</h2>
+        <p class="hint">适合新手：先选择路径，再扫描大文件/缓存，最后确认备份。</p>
+        <div class="form-group"><label>要备份的路径</label><input type="text" id="wizard-path" placeholder="/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn btn-secondary" onclick="wizardScan()">1. 扫描大文件和缓存</button>
+            <button class="btn" id="btn-wizard-run" onclick="wizardRunBackup()">2. 按勾选规则开始备份</button>
+        </div>
+        <div id="wizard-summary" class="hint">等待扫描</div>
+        <div id="wizard-suggestions" style="display:grid;gap:8px;margin:12px 0;"></div>
+        <pre id="wizard-large-files" style="background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;">扫描后显示 Top 大文件</pre>
     </div>
 
     <div class="section">
@@ -447,7 +461,7 @@ tr:hover { background: #f8f9fa; }
             <button class="btn btn-secondary" onclick="runPrecheck()">备份前体检</button>
             <button class="btn btn-secondary" onclick="document.getElementById('import-file').click()">导入 .tar.zst</button>
             <input type="file" id="import-file" accept=".zst" style="display:none" onchange="importBackupFile(this.files[0])">
-            <select id="backup-status-filter" onchange="renderBackupFiles()" style="max-width:160px;"><option value="">全部状态</option><option value="success">正常</option><option value="trashed">回收站</option><option value="deleted">已删除记录</option><option value="failed">失败</option></select>
+            <select id="backup-status-filter" onchange="renderBackupFiles()" style="max-width:180px;"><option value="">可用备份</option><option value="missing">文件丢失</option><option value="unchecked">未校验</option><option value="ok">已校验</option><option value="failed">失败</option></select>
             <input type="text" id="backup-search" placeholder="搜索 ID/来源/路径/sha256/备注/标签" oninput="renderBackupFiles()" style="max-width:280px;">
         </div>
         <div id="precheck-result" class="hint"></div>
@@ -527,15 +541,22 @@ tr:hover { background: #f8f9fa; }
 <!-- Tab: 工具 -->
 <div id="tab-tools" class="tab-content" style="display:none;">
     <div class="section">
-        <h2>备份模板 / 一键推荐</h2>
-        <p class="hint">可查看内置备份源模板，或生成推荐配置后手动保存。</p>
-        <button class="btn btn-secondary" onclick="loadTemplates()">加载模板</button>
-        <button class="btn" onclick="applyRecommendedConfig()">应用推荐配置到编辑区</button>
+        <h2>高级工具：模板 / 推荐配置</h2>
+        <p class="hint">选择一个推荐模板，预览后可直接追加为备份源；不会覆盖已有配置。</p>
+        <div class="form-row">
+            <div class="form-group"><label>推荐模板</label><select id="template-select" onchange="previewSelectedTemplate()"><option value="">点击加载模板</option></select></div>
+            <div class="form-group"><label>备份源名称</label><input type="text" id="template-source-name" placeholder="选择模板后自动填入"></div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn btn-secondary" onclick="loadTemplates()">加载模板</button>
+            <button class="btn" onclick="addSelectedTemplateSource()">添加进配置</button>
+            <button class="btn btn-secondary" onclick="applyRecommendedConfig()">整套推荐配置到编辑区</button>
+        </div>
         <pre id="templates-box" style="background:#f6f8fa;padding:10px;max-height:260px;overflow:auto;margin-top:12px;">点击加载模板</pre>
     </div>
     <div class="section">
-        <h2>大文件扫描 / 推荐排除</h2>
-        <p class="hint">备份前扫描最大文件，避免日志、缓存被误打包。</p>
+        <h2>高级工具：手动扫描</h2>
+        <p class="hint">独立扫描路径。日常备份请使用“备份向导”，扫描结果可直接勾选排除。</p>
         <div class="form-group"><label>扫描路径</label><input type="text" id="scan-path" placeholder="/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/"></div>
         <button class="btn" onclick="scanLargeFiles()">扫描 Top 20</button>
         <button class="btn btn-secondary" onclick="loadRecommendedExcludes()">推荐排除规则</button>
@@ -543,12 +564,19 @@ tr:hover { background: #f8f9fa; }
     </div>
 </div>
 
-<!-- Tab: 日志（v1.0.17 新增） -->
+<!-- Tab: 日志 -->
 <div id="tab-log" class="tab-content" style="display:none;">
     <div class="section">
-        <h2>运行日志</h2>
-        <p class="hint">显示最近 200 行 server.log。点击"刷新"获取最新日志。</p>
-        <button class="btn" onclick="loadLog()">刷新日志</button>
+        <h2>日志中心</h2>
+        <p class="hint">可查看运行日志、备份日志、启停日志和审计日志；空日志会明确提示。</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+            <button class="btn btn-secondary" onclick="loadLog('server')">运行日志</button>
+            <button class="btn btn-secondary" onclick="loadLog('backup')">备份日志</button>
+            <button class="btn btn-secondary" onclick="loadLog('cmd')">启停日志</button>
+            <button class="btn btn-secondary" onclick="loadLog('audit')">审计日志</button>
+            <select id="log-lines" onchange="loadLog(currentLogType || 'server')" style="max-width:120px;"><option value="200">200 行</option><option value="500">500 行</option><option value="2000">2000 行</option></select>
+        </div>
+        <div id="log-meta" class="hint">请选择日志类型</div>
         <pre id="log-container" style="background:#1e1e1e;color:#d4d4d4;padding:16px;border-radius:6px;max-height:600px;overflow:auto;font-size:12px;margin-top:12px;">加载中...</pre>
     </div>
 </div>
@@ -573,7 +601,7 @@ tr:hover { background: #f8f9fa; }
 <div id="modal-setup" class="modal-overlay">
     <div class="modal">
         <h3>设置密码</h3>
-        <p>首次使用，请设置一个密码（至少 4 个字符）</p>
+        <p>首次使用，请设置一个密码（至少 8 个字符）</p>
         <div class="form-group">
             <input type="password" id="setup-password" placeholder="新密码" autofocus>
         </div>
@@ -676,8 +704,11 @@ function doConfirm() {
         return;
     }
     closeModal('modal-confirm');
-    if (confirmCallback) confirmCallback();
+    const cb = confirmCallback;
     confirmCallback = null;
+    if (cb) {
+        Promise.resolve(cb()).catch(e => showToast('操作失败: ' + e.message, 'error'));
+    }
 }
 
 function formatSize(bytes) {
@@ -872,51 +903,78 @@ async function toggleSource(id, enabled) {
     }
 }
 
-// v1.0.22 改：使用 AbortController 跑进度轮询（切 tab/重启时自动取消）
+// v1.2.2 改：备份请求立即提交后台任务，前端只轮询状态，避免长请求超时/重复点击
 let backupPollController = null;
+function setBackupButtonsDisabled(disabled) {
+    ['btn-run-backup-now', 'btn-wizard-run'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = disabled;
+    });
+}
+
+function prepareBackupProgress(message) {
+    const section = document.getElementById('backup-progress-section');
+    const fill = document.getElementById('backup-progress-fill');
+    const text = document.getElementById('backup-progress-text');
+    section.style.display = 'block';
+    fill.style.width = '0%';
+    text.textContent = message || '准备中...';
+    return { section, fill, text };
+}
+
+async function monitorBackupProgress() {
+    const ui = prepareBackupProgress('任务已提交，等待状态...');
+    if (backupPollController) backupPollController.abort();
+    const controller = new AbortController();
+    backupPollController = controller;
+    setBackupButtonsDisabled(true);
+    const start = Date.now();
+    let sawRunning = false;
+    try {
+        while (Date.now() - start < 30 * 60 * 1000) {
+            if (controller.signal.aborted) return;
+            const status = await apiCall('GET', '/api/backup/status', null, controller.signal);
+            if (!status) return;
+            if (status.running) {
+                sawRunning = true;
+                const p = Math.max(0, Math.min(100, status.percent || 0));
+                ui.fill.style.width = p + '%';
+                ui.text.textContent = `${status.sourceName || ''} [${status.phase || '?'}] ${p}%`;
+            } else if (status.phase === 'done') {
+                ui.fill.style.width = '100%';
+                ui.text.textContent = '备份完成';
+                showToast('备份完成', 'success');
+                loadBackupFiles();
+                loadStorageInfo();
+                return;
+            } else if (status.phase === 'error') {
+                ui.fill.style.width = '100%';
+                ui.text.textContent = '失败: ' + (status.error || 'unknown');
+                showToast('备份失败: ' + (status.error || 'unknown'), 'error');
+                return;
+            } else if (sawRunning) {
+                ui.text.textContent = '备份状态已结束，正在刷新列表';
+                loadBackupFiles();
+                return;
+            }
+            await new Promise(r => setTimeout(r, 1000));
+        }
+        ui.text.textContent = '备份仍在运行，请稍后刷新状态';
+    } finally {
+        setBackupButtonsDisabled(false);
+    }
+}
+
 async function runBackupNow() {
     showConfirm('立即备份', '将立即执行所有已启用的备份源，确认继续？', async () => {
-        showToast('备份已启动，请稍候...', 'info');
-        const section = document.getElementById('backup-progress-section');
-        const fill = document.getElementById('backup-progress-fill');
-        const text = document.getElementById('backup-progress-text');
-        section.style.display = 'block';
-        fill.style.width = '0%';
-        text.textContent = '准备中...';
-        // v1.0.22 加：取消上一次轮询
-        if (backupPollController) backupPollController.abort();
-        const controller = new AbortController();
-        backupPollController = controller;
-        const tick = async () => {
-            const status = await apiCall('GET', '/api/backup/status', null, controller.signal);
-            if (!status) return false;
-            if (status.running) {
-                const p = Math.max(0, Math.min(100, status.percent || 0));
-                fill.style.width = p + '%';
-                text.textContent = `${status.sourceName || ''} [${status.phase || '?'}] ${p}%`;
-                return false; // 继续轮询
-            } else if (status.phase === 'done') {
-                fill.style.width = '100%';
-                text.textContent = '备份完成';
-                return true; // 停止
-            }
-            return false;
-        };
-        // 轮询（每 500ms，最多 10 分钟）
-        let done = false;
-        const start = Date.now();
-        while (!done && Date.now() - start < 10 * 60 * 1000) {
-            if (controller.signal.aborted) break;
-            done = await tick();
-            if (!done) await new Promise(r => setTimeout(r, 500));
-        }
-        const res = await apiCall('POST', '/api/backup/run', null, controller.signal);
-        if (controller.signal.aborted) return;
-        fill.style.width = '100%';
-        text.textContent = res && res.ok !== false ? '备份完成' : ('失败: ' + (res && res.error || 'unknown'));
-        if (res && res.ok !== false) {
-            showToast('备份完成', 'success');
-            loadHistory();
+        setBackupButtonsDisabled(true);
+        prepareBackupProgress('正在提交备份任务...');
+        const res = await apiCall('POST', '/api/backup/run', { manual: true });
+        if (res && res.started) {
+            showToast('备份任务已提交，后台执行中', 'success');
+            monitorBackupProgress();
+        } else {
+            setBackupButtonsDisabled(false);
         }
     });
 }
@@ -944,15 +1002,23 @@ async function runRetention() {
     });
 }
 
-// ============ v1.0.17 新增：日志查看 ============
-async function loadLog() {
-    const res = await apiCall('GET', '/api/log?lines=200');
+// ============ v1.2.0 日志中心 ============
+let currentLogType = 'server';
+async function loadLog(type) {
+    currentLogType = type || currentLogType || 'server';
+    const lines = document.getElementById('log-lines') ? document.getElementById('log-lines').value : 200;
+    const res = await apiCall('GET', '/api/logs?type=' + encodeURIComponent(currentLogType) + '&lines=' + encodeURIComponent(lines));
     const container = document.getElementById('log-container');
-    if (!res || !res.lines) {
-        container.textContent = '加载失败';
+    const meta = document.getElementById('log-meta');
+    if (!container) return;
+    if (!res || !res.ok) {
+        container.textContent = '加载失败：' + (res && res.error || '未知错误');
         return;
     }
-    container.textContent = res.lines.join('\n');
+    if (meta) meta.innerHTML = `类型：${escapeHtml(currentLogType)} ｜ 文件：<code>${escapeHtml(res.path || '')}</code> ｜ 总行数：${res.total || 0}`;
+    if (!res.exists) container.textContent = '日志文件不存在：' + (res.path || '未知路径');
+    else if (!res.lines || res.lines.length === 0) container.textContent = '暂无日志内容。请先执行一次备份、刷新服务或查看其他日志类型。';
+    else container.textContent = res.lines.join('\n');
     container.scrollTop = container.scrollHeight;
 }
 
@@ -1157,6 +1223,7 @@ async function loadBackupFiles() {
 }
 
 function healthLabel(b) {
+    if (b.status === 'deleted' || b.health === 'deleted') return '🗑️ 已永久删除';
     if (b.status === 'trashed' || b.health === 'trashed') return '🗑️ 已回收';
     if (b.imported) return '📥 导入';
     if (b.health === 'missing') return '❌ 丢失';
@@ -1169,7 +1236,7 @@ function renderBackupFiles() {
     if (!tbody) return;
     const q = (document.getElementById('backup-search') && document.getElementById('backup-search').value || '').toLowerCase();
     const f = (document.getElementById('backup-status-filter') && document.getElementById('backup-status-filter').value || '');
-    const list = backupFilesCache.filter(b => (!f || b.status === f || (f === 'success' && b.health === 'ok')) && (!q || JSON.stringify(b).toLowerCase().includes(q)));
+    const list = backupFilesCache.filter(b => (!f || b.status === f || b.health === f) && (!q || JSON.stringify(b).toLowerCase().includes(q)));
     if (list.length === 0) { tbody.innerHTML = '<tr><td colspan="7" class="empty">暂无备份文件</td></tr>'; return; }
     tbody.innerHTML = list.map(b => `
         <tr>
@@ -1269,7 +1336,7 @@ async function protectBackup(id, value) {
 async function loadStorageInfo() {
     const info = await apiCall('GET', '/api/storage/info');
     if (!info) return;
-    document.getElementById('storage-info').innerHTML = `当前目录：<code>${escapeHtml(info.root)}</code><br>备份数：${info.successCount}/${info.count}，占用：${info.totalSizeHuman}，剩余：${info.freeHuman}`;
+    document.getElementById('storage-info').innerHTML = `当前目录：<code>${escapeHtml(info.root)}</code><br>可用：${info.successCount || 0}，回收站：${info.trashedCount || 0}，已删除记录：${info.deletedCount || 0}，丢失：${info.missingCount || 0}<br>占用：${info.totalSizeHuman}，剩余：${info.freeHuman}`;
     document.getElementById('storage-root').value = info.root;
     document.getElementById('storage-layout').value = info.layout || 'year-month-source';
     document.getElementById('storage-trash-days').value = info.trashDays || 7;
@@ -1301,16 +1368,20 @@ async function loadNotifyConfig() {
     const tab = document.getElementById('tab-notify');
     tab.innerHTML = `
         <div class="section">
-            <h2>通知配置</h2>
+            <h2>通知向导</h2>
+            <p class="hint">先选择通知事件，再配置通道。QQ/飞牛当前使用 Webhook URL；邮件未启用，不再显示可编辑项。</p>
+            <h3>1. 通知事件</h3>
             <label><input type="checkbox" id="notify-enabled" ${n.enabled ? 'checked' : ''}> 启用通知</label><br>
             <label><input type="checkbox" id="notify-success" ${n.onSuccess !== false ? 'checked' : ''}> 备份成功通知</label><br>
             <label><input type="checkbox" id="notify-failure" ${n.onFailure !== false ? 'checked' : ''}> 备份失败通知</label><br>
-            <label><input type="checkbox" id="notify-nosource" ${n.onNoSource !== false ? 'checked' : ''}> 无启用备份源也通知</label>
-            <div class="form-group"><label>QQ Webhook URL</label><input type="text" id="notify-qq-url" value="${escapeHtml(ch.qq && ch.qq.url || '')}"></div>
-            <label><input type="checkbox" id="notify-qq-enabled" ${ch.qq && ch.qq.enabled ? 'checked' : ''}> 启用 QQ</label>
-            <div class="form-group"><label>飞牛 Webhook URL</label><input type="text" id="notify-feiniu-url" value="${escapeHtml(ch.feiniu && ch.feiniu.url || '')}"></div>
-            <label><input type="checkbox" id="notify-feiniu-enabled" ${ch.feiniu && ch.feiniu.enabled ? 'checked' : ''}> 启用飞牛</label>
-            <p class="hint">邮件通道 v1.1.0 暂未启用，建议先使用 QQ 或飞牛 webhook。</p>
+            <label><input type="checkbox" id="notify-nosource" ${n.onNoSource !== false ? 'checked' : ''}> 没有启用备份源也通知</label>
+            <h3 style="margin-top:16px;">2. QQ 通知</h3>
+            <label><input type="checkbox" id="notify-qq-enabled" ${ch.qq && ch.qq.enabled ? 'checked' : ''}> 启用 QQ Webhook</label>
+            <div class="form-group"><label>QQ Webhook URL</label><input type="text" id="notify-qq-url" value="${escapeHtml(ch.qq && ch.qq.url || '')}" placeholder="粘贴 QQ 机器人 Webhook URL"></div>
+            <h3>3. 飞牛通知</h3>
+            <label><input type="checkbox" id="notify-feiniu-enabled" ${ch.feiniu && ch.feiniu.enabled ? 'checked' : ''}> 启用飞牛 Webhook</label>
+            <div class="form-group"><label>飞牛 Webhook URL</label><input type="text" id="notify-feiniu-url" value="${escapeHtml(ch.feiniu && ch.feiniu.url || '')}" placeholder="粘贴飞牛 Webhook URL"></div>
+            <p class="hint">邮件通知当前版本未集成，建议使用 QQ 或飞牛 Webhook。</p>
             <button class="btn" onclick="saveNotifyConfig()">保存通知配置</button>
             <button class="btn btn-secondary" onclick="testNotify()">发送测试</button>
             <p id="notify-test-result" style="margin-top:8px;"></p>
@@ -1326,7 +1397,7 @@ async function saveNotifyConfig() {
         channels: {
             qq: { enabled: document.getElementById('notify-qq-enabled').checked, url: document.getElementById('notify-qq-url').value },
             feiniu: { enabled: document.getElementById('notify-feiniu-enabled').checked, url: document.getElementById('notify-feiniu-url').value },
-            email: { enabled: false, smtp: '', user: '', note: 'v1.1.0 暂未启用邮件发送' }
+            email: { enabled: false, smtp: '', user: '', note: '当前版本未启用邮件发送' }
         }
     };
     const res = await apiCall('POST', '/api/notify/config', { notify });
@@ -1334,8 +1405,8 @@ async function saveNotifyConfig() {
 }
 
 async function testNotify() {
-    const res = await apiCall('POST', '/api/notify/test', { message: '[Agent 备份] 测试通知 - ' + new Date().toLocaleString() });
     const el = document.getElementById('notify-test-result');
+    const res = await apiCall('POST', '/api/notify/test', { message: '[Agent 备份] 测试通知 - ' + new Date().toLocaleString() });
     if (el) el.textContent = res && res.ok ? '✅ 通知已发送' : ('❌ 失败: ' + (res && (res.error || JSON.stringify(res.results)) || '未知'));
 }
 
@@ -1355,6 +1426,47 @@ function escapeHtml(str) {
     return String(str).replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
+}
+
+
+// ============ v1.2.0 备份向导 ============
+function showBackupWizard() {
+    const el = document.getElementById('backup-wizard');
+    if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function selectedWizardExcludes() {
+    return Array.from(document.querySelectorAll('.wizard-exclude:checked')).map(x => x.value);
+}
+
+async function wizardScan() {
+    const path = document.getElementById('wizard-path').value;
+    if (!path) { showToast('请先填写要备份的路径', 'error'); return; }
+    const res = await apiCall('POST', '/api/backup/wizard/scan', { path, limit: 20 });
+    const summary = document.getElementById('wizard-summary');
+    const sug = document.getElementById('wizard-suggestions');
+    const files = document.getElementById('wizard-large-files');
+    if (!res || !res.ok) { if (summary) summary.textContent = '扫描失败'; return; }
+    summary.innerHTML = `扫描路径：<code>${escapeHtml(res.path)}</code> ｜ Top 文件合计：${escapeHtml(res.summary && res.summary.topFilesSizeHuman || '')}`;
+    sug.innerHTML = (res.suggestions || []).map(x => `<label style="border:1px solid #e0e0e0;border-radius:6px;padding:8px;"><input class="wizard-exclude" type="checkbox" value="${escapeHtml(x.pattern)}" ${x.checked ? 'checked' : ''}> ${escapeHtml(x.label)}<br><small>${escapeHtml(x.reason || '')}</small></label>`).join('');
+    files.textContent = (res.largeFiles || []).map((f, i) => `${i + 1}. ${f.human}\t${f.rel || f.path}`).join('\n') || '没有扫描到文件';
+}
+
+async function wizardRunBackup() {
+    const path = document.getElementById('wizard-path').value;
+    if (!path) { showToast('请先填写要备份的路径', 'error'); return; }
+    const excludes = selectedWizardExcludes();
+    showConfirm('开始备份', `将备份 ${path}，并排除 ${excludes.length} 条规则。确认开始？`, async () => {
+        setBackupButtonsDisabled(true);
+        prepareBackupProgress('正在提交向导备份任务...');
+        const res = await apiCall('POST', '/api/backup/wizard/run', { path, excludes, name: '备份向导' });
+        if (res && res.started) {
+            showToast('备份任务已提交，后台执行中', 'success');
+            monitorBackupProgress();
+        } else {
+            setBackupButtonsDisabled(false);
+        }
+    });
 }
 
 // ============ 初始化 ============
@@ -1461,19 +1573,74 @@ async function loadAudit() {
     box.textContent = res && res.logs ? res.logs.map(x => `[${x.time || ''}] ${x.action || ''} ${JSON.stringify(x.detail || {})}`).join('\n') : '加载失败';
 }
 
+let templateCache = [];
+
 async function loadTemplates() {
     const res = await apiCall('GET', '/api/config/templates');
-    document.getElementById('templates-box').textContent = JSON.stringify(res && res.templates || [], null, 2);
+    if (!res || !res.templates) return;
+    templateCache = res.templates;
+    const sel = document.getElementById('template-select');
+    if (sel) {
+        sel.innerHTML = '<option value="">请选择模板</option>' + templateCache.map(t => `<option value="${escapeHtml(t.id)}">${escapeHtml(t.name)}</option>`).join('');
+    }
+    document.getElementById('templates-box').textContent = JSON.stringify(templateCache, null, 2);
+    showToast('模板已加载', 'success');
+}
+
+function selectedTemplate() {
+    const sel = document.getElementById('template-select');
+    const id = sel ? sel.value : '';
+    return templateCache.find(t => t.id === id);
+}
+
+function previewSelectedTemplate() {
+    const t = selectedTemplate();
+    if (!t) {
+        document.getElementById('templates-box').textContent = '请选择模板';
+        const nameInput = document.getElementById('template-source-name');
+        if (nameInput) nameInput.value = '';
+        return;
+    }
+    document.getElementById('template-source-name').value = t.name;
+    document.getElementById('templates-box').textContent = JSON.stringify({
+        name: t.name,
+        path: t.path,
+        exclude: t.excludes || []
+    }, null, 2);
+}
+
+async function addSelectedTemplateSource() {
+    const t = selectedTemplate();
+    if (!t) { showToast('请先选择模板', 'error'); return; }
+    if (!currentConfig) await loadSources();
+    const name = document.getElementById('template-source-name').value || t.name;
+    const sources = Array.isArray(currentConfig.sources) ? currentConfig.sources : [];
+    if (sources.some(s => s.path === t.path)) {
+        showToast('配置中已存在相同路径: ' + t.path, 'error');
+        return;
+    }
+    const baseId = t.id.replace(/[^a-zA-Z0-9_-]/g, '-');
+    let id = baseId;
+    let n = 2;
+    while (sources.some(s => s.id === id)) id = `${baseId}-${n++}`;
+    sources.push({ id, name, path: t.path, enabled: true, include: ['*'], exclude: t.excludes || [] });
+    currentConfig.sources = sources;
+    const res = await apiCall('POST', '/api/config', currentConfig);
+    if (res && res.ok) {
+        showToast('已添加备份源: ' + name, 'success');
+        renderSources(currentConfig.sources || []);
+        loadConfigUI();
+    }
 }
 
 async function applyRecommendedConfig() {
     const res = await apiCall('GET', '/api/config/recommended');
     if (!res || !res.config) return;
     currentConfig = res.config;
-    renderConfigSources();
-    document.getElementById('cron-schedule').value = res.config.schedule && res.config.schedule.cron || '0 3 * * *';
-    showToast('推荐配置已加载到配置页，确认后请点保存配置', 'success');
     switchTab('config');
+    renderConfigSources(currentConfig.sources || []);
+    document.getElementById('cron-schedule').value = currentConfig.schedule || '0 3 * * *';
+    showToast('推荐配置已加载到配置页，确认后请点保存配置', 'success');
 }
 
 async function scanLargeFiles() {

@@ -1,6 +1,6 @@
 {
   ".url": {
-    "com.dustinky.agentbackup.Application": {
+    "com.dustinky.agentbackup": {
       "title": "Agent 备份",
       "desc": "Agent 备份控制台",
       "icon": "images/icon_{0}.png",

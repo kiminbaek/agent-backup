@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '1.1.3'; // v1.1.3 改：回收站闭环/恢复安全/审计/备注标签/模板/大文件扫描
+const VERSION = '1.2.2'; // v1.2.2 修：模板下拉添加/后台备份/防重复点击
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -69,27 +69,48 @@ app.get('/api/info', (req, res) => {
     });
 });
 
-// v1.0.17 新增：日志查看（需鉴权）
-app.get('/api/log', auth.requireToken, (req, res) => {
-    const lines = Math.min(parseInt(req.query.lines) || 200, 2000);
+function readTailLines(file, lines) {
+    if (!file || !fs.existsSync(file)) {
+        return { exists: false, path: file || '', lines: [], total: 0 };
+    }
+    const stat = fs.statSync(file);
+    const fd = fs.openSync(file, 'r');
     try {
-        if (!fs.existsSync(LOG_FILE)) {
-            return res.json({ ok: true, lines: [], total: 0 });
-        }
-        // v1.0.20 改：大日志只读末尾 256KB（避免 readFileSync 卡死）
-        const stat = fs.statSync(LOG_FILE);
-        const fd = fs.openSync(LOG_FILE, 'r');
-        const start = Math.max(0, stat.size - 256 * 1024);
+        const start = Math.max(0, stat.size - 512 * 1024);
         const buf = Buffer.alloc(stat.size - start);
         fs.readSync(fd, buf, 0, buf.length, start);
+        const allLines = buf.toString('utf8').split('\n').filter(l => l.length > 0);
+        return { exists: true, path: file, lines: allLines.slice(-lines), total: allLines.length, size: stat.size };
+    } finally {
         fs.closeSync(fd);
-        const text = buf.toString('utf8');
-        const allLines = text.split('\n').filter(l => l.length > 0);
-        const tail = allLines.slice(-lines);
-        res.json({ ok: true, lines: tail, total: allLines.length });
+    }
+}
+
+function logFileByType(type) {
+    const t = String(type || 'server');
+    if (t === 'backup') return logger.BACKUP_LOG;
+    if (t === 'audit') return path.join('/vol3/@appdata/com.dustinky.agentbackup/logs', 'audit.log');
+    if (t === 'cmd') return path.join('/vol3/@appdata/com.dustinky.agentbackup', 'info.log');
+    return logger.SERVER_LOG;
+}
+
+// v1.2.0 日志中心（需鉴权）：server / backup / cmd / audit
+app.get('/api/logs', auth.requireToken, (req, res) => {
+    const type = String(req.query.type || 'server');
+    const lines = Math.min(parseInt(req.query.lines) || 200, 2000);
+    try {
+        const result = readTailLines(logFileByType(type), lines);
+        res.json({ ok: true, type, ...result });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+// 兼容旧前端：默认读取运行日志
+app.get('/api/log', auth.requireToken, (req, res) => {
+    const lines = Math.min(parseInt(req.query.lines) || 200, 2000);
+    try { res.json({ ok: true, ...readTailLines(logger.SERVER_LOG, lines) }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // 路由挂载

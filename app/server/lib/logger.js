@@ -80,4 +80,4 @@ function backup(msg, extra) {
     info(msg, extra);
 }
 
-module.exports = { info, warn, error, backup, format };
+module.exports = { info, warn, error, backup, format, LOG_DIR, SERVER_LOG, BACKUP_LOG };

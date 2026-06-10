@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
+const { Transform } = require('stream');  // v1.1.4 加：Transform 流做导入大小检测
 const auth = require('../lib/auth');
 const backup = require('../lib/backup-engine');
 const storage = require('../lib/storage');
@@ -10,6 +11,27 @@ const audit = require('../lib/audit');
 
 const requireAuth = auth.requireToken;
 const STATUS_FILE = backup.STATUS_FILE;
+
+function startBackgroundBackup(sources, options) {
+    try {
+        fs.writeFileSync(STATUS_FILE, JSON.stringify({
+            running: true,
+            phase: 'queued',
+            percent: 0,
+            sourceId: sources && sources[0] && sources[0].id,
+            sourceName: sources && sources[0] && sources[0].name,
+            ts: Date.now()
+        }, null, 2));
+    } catch (_) { /* ignore */ }
+    setImmediate(() => backup.runBackup(sources, options || {}).catch(e => {
+        try {
+            fs.writeFileSync(STATUS_FILE, JSON.stringify({
+                running: false, phase: 'error', percent: 100, error: e.message, ts: Date.now()
+            }, null, 2));
+        } catch (_) { /* ignore */ }
+        console.error('[backup-background] failed:', e);
+    }));
+}
 
 router.get('/status', requireAuth, (req, res) => {
     try {
@@ -26,11 +48,11 @@ router.post('/precheck', requireAuth, async (req, res) => {
     catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-router.post('/run', requireAuth, async (req, res) => {
+router.post('/run', requireAuth, (req, res) => {
     try {
         const config = storage.loadConfig();
-        const result = await backup.runBackup(config.sources || [], req.body || {});
-        res.json(result);
+        startBackgroundBackup(config.sources || [], req.body || {});
+        res.json({ ok: true, started: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -38,7 +60,11 @@ router.post('/run', requireAuth, async (req, res) => {
 
 router.get('/list', requireAuth, (req, res) => {
     try {
-        const list = backup.listBackups().filter(b => !req.query.status || b.status === req.query.status);
+        const list = backup.listBackups({
+            status: req.query.status || '',
+            includeTrashed: req.query.includeTrashed === '1' || req.query.includeTrashed === 'true',
+            includeDeleted: req.query.includeDeleted === '1' || req.query.includeDeleted === 'true'
+        });
         res.json({ ok: true, count: list.length, backups: list });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -73,15 +99,24 @@ router.post('/import', requireAuth, async (req, res) => {
     const maxBytes = Number(config.storage && config.storage.maxUploadGB || 20) * 1024 * 1024 * 1024;
     storage.ensureDir(storage.TMP_DIR, 0o700);
     const tmp = path.join(storage.TMP_DIR, `import_${process.pid}_${Date.now()}_${original.replace(/[^a-zA-Z0-9._-]/g, '_')}`);
+    // v1.1.4 修：Transform 流替代 req.on('data') + req.pipe(out)（Bug #4）
+    //   旧版二者并发消费，req.destroy() 后 out.finish 不触发 → 响应丢失
     let written = 0;
-    const out = fs.createWriteStream(tmp, { mode: 0o600 });
-    req.on('data', chunk => {
-        written += chunk.length;
-        if (written > maxBytes) {
-            req.destroy(new Error('导入文件超过大小限制'));
+    const sizeChecker = new Transform({
+        transform(chunk, encoding, callback) {
+            written += chunk.length;
+            if (written > maxBytes) {
+                callback(new Error(`导入文件超过大小限制 (${maxBytes} bytes)`));
+            } else {
+                callback(null, chunk);
+            }
         }
     });
-    req.pipe(out);
+    const out = fs.createWriteStream(tmp, { mode: 0o600 });
+    req.pipe(sizeChecker).pipe(out);
+    function cleanup() {
+        try { if (fs.existsSync(tmp)) fs.rmSync(tmp, { force: true }); } catch (_) { /* ignore */ }
+    }
     out.on('finish', async () => {
         try {
             const item = await backup.importArchive(tmp, {
@@ -93,13 +128,20 @@ router.post('/import', requireAuth, async (req, res) => {
             });
             res.json({ ok: true, backup: item });
         } catch (e) {
-            try { fs.rmSync(tmp, { force: true }); } catch (_) { /* ignore */ }
-            res.status(400).json({ error: e.message });
+            cleanup();
+            if (!res.headersSent) res.status(400).json({ error: e.message });
         }
     });
-    out.on('error', e => res.status(500).json({ error: e.message }));
+    sizeChecker.on('error', e => {
+        cleanup();
+        if (!res.headersSent) res.status(400).json({ error: e.message });
+    });
+    out.on('error', e => {
+        cleanup();
+        if (!res.headersSent) res.status(500).json({ error: e.message });
+    });
     req.on('error', e => {
-        try { fs.rmSync(tmp, { force: true }); } catch (_) { /* ignore */ }
+        cleanup();
         if (!res.headersSent) res.status(400).json({ error: e.message });
     });
 });
@@ -151,6 +193,25 @@ router.post('/trash/cleanup', requireAuth, (req, res) => {
 router.post('/scan/large-files', requireAuth, (req, res) => {
     try { res.json(backup.scanLargeFiles(req.body && req.body.path, req.body && req.body.limit)); }
     catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/wizard/scan', requireAuth, (req, res) => {
+    try { res.json(backup.wizardScan(req.body && req.body.path, req.body || {})); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/wizard/estimate', requireAuth, (req, res) => {
+    try { res.json(backup.estimateWizard(req.body && req.body.path, req.body && req.body.excludes)); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/wizard/run', requireAuth, (req, res) => {
+    try {
+        const body = req.body || {};
+        const source = { id: body.id || `wizard-${Date.now()}`, name: body.name || '备份向导', path: body.path, enabled: true, include: ['*'], exclude: Array.isArray(body.excludes) ? body.excludes : [] };
+        startBackgroundBackup([source], { manual: true, wizard: true });
+        res.json({ ok: true, started: true, sourceId: source.id });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.get('/recommended/excludes', requireAuth, (req, res) => {

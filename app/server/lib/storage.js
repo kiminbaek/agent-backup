@@ -68,18 +68,27 @@ function normalizeConfig(config) {
     const d = defaultConfig();
     const c = Object.assign({}, d, config || {});
     c.sources = Array.isArray(c.sources) ? c.sources : [];
+    c.sources = c.sources.map(src => {
+        const x = Object.assign({}, src || {});
+        if (!Array.isArray(x.exclude) && Array.isArray(x.excludes)) x.exclude = x.excludes;
+        if (!Array.isArray(x.include)) x.include = Array.isArray(x.includes) ? x.includes : ['*'];
+        if (!Array.isArray(x.exclude)) x.exclude = [];
+        return x;
+    });
+    if (c.schedule && typeof c.schedule === 'object') c.schedule = c.schedule.cron || d.schedule;
     c.schedule = c.schedule || d.schedule;
     c.storage = Object.assign({}, d.storage, c.storage || {});
     c.retention = Object.assign({}, d.retention, c.retention || {});
+    if (c.retention.keepDays && !c.retention.days) c.retention.days = c.retention.keepDays;
     // 兼容 v1.0.x notify.qq.url / notify.feiniu.url
     const oldNotify = c.notify || {};
     const channels = Object.assign({}, d.notify.channels, oldNotify.channels || {});
     if (oldNotify.qq && oldNotify.qq.url) channels.qq = Object.assign({}, channels.qq, { enabled: true, url: oldNotify.qq.url });
     if (oldNotify.feiniu && oldNotify.feiniu.url) channels.feiniu = Object.assign({}, channels.feiniu, { enabled: true, url: oldNotify.feiniu.url });
     c.notify = Object.assign({}, d.notify, oldNotify, { channels });
-    delete c.notify.qq;
-    delete c.notify.feiniu;
-    delete c.notify.email;
+    // v1.1.4 修：不 delete 顶层 qq/feiniu/email（Bug #5）
+    //  旧版 delete 可能导致新格式配置意外丢失数据
+    //  顶层属性已 merge 进 channels，保留无害
     return c;
 }
 
@@ -215,6 +224,11 @@ function enrichBackup(b, config) {
     if (exists) {
         try { stat = fs.statSync(b.archive); } catch (_) { stat = null; }
     }
+    let health = 'unchecked';
+    if (b.status === 'deleted') health = 'deleted';
+    else if (b.status === 'trashed') health = 'trashed';
+    else if (!exists) health = 'missing';
+    else if (b.verifiedAt) health = 'ok';
     return Object.assign({}, b, {
         filename: b.archive ? path.basename(b.archive) : '',
         backupRoot: getBackupRoot(config),
@@ -223,7 +237,7 @@ function enrichBackup(b, config) {
         sizeHuman: humanSize(stat ? stat.size : (b.size || 0)),
         createdAt: new Date(b.timestamp || 0).toLocaleString('zh-CN', { hour12: false }),
         mtime: stat ? stat.mtimeMs : null,
-        health: b.status === 'trashed' ? 'trashed' : (!exists ? 'missing' : (b.verifiedAt ? 'ok' : 'unchecked'))
+        health
     });
 }
 
@@ -239,6 +253,9 @@ function storageInfo(config) {
         trashDays: c.storage.trashDays,
         count: meta.backups.length,
         successCount: meta.backups.filter(b => b.status === 'success').length,
+        trashedCount: meta.backups.filter(b => b.status === 'trashed').length,
+        deletedCount: meta.backups.filter(b => b.status === 'deleted').length,
+        missingCount: meta.backups.filter(b => b.status === 'success' && b.archive && !fs.existsSync(b.archive)).length,
         totalSize: total,
         totalSizeHuman: humanSize(total),
         free: getFreeBytes(root),

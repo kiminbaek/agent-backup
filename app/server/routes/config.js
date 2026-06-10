@@ -47,11 +47,11 @@ router.get('/recommended', requireAuth, (req, res) => {
     const now = Date.now();
     res.json({ ok: true, config: storage.normalizeConfig({
         sources: [
-            { id: 'qwenpaw-workspaces', name: 'QwenPaw 工作区', path: '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/', enabled: true, excludes: ['**/node_modules/**', '**/.git/**', '**/.cache/**'] },
-            { id: 'fpk-files', name: 'fpk 文件夹', path: '/vol3/1000/nas/小虾米的fpk文件/', enabled: true, excludes: ['.trash*/**'] }
+            { id: 'qwenpaw-workspaces', name: 'QwenPaw 工作区', path: '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/', enabled: true, exclude: ['node_modules', '.git', '.cache'] },
+            { id: 'fpk-files', name: 'fpk 文件夹', path: '/vol3/1000/nas/小虾米的fpk文件/', enabled: true, exclude: ['.trash*'] }
         ],
-        schedule: { enabled: true, cron: '0 3 * * *' },
-        retention: { keepDays: 30, keepLast: 10 },
+        schedule: '0 3 * * *',
+        retention: { days: 30, keepLast: 10 },
         storage: { trashDays: 7, layout: 'year-month-source' },
         alert: { staleDays: 2, sizeGrowthRatio: 3 },
         updatedAt: now

@@ -1,7 +1,7 @@
 appname               = com.dustinky.agentbackup
-version               = 1.1.3
+version               = 1.2.2
 display_name          = Agent 备份
-desc                  = Agent 备份是一款面向飞牛 fnOS 的轻量级备份与恢复工具，支持增量备份（rsync --link-dest）、zstd 压缩、定时任务、保留策略、软回收 trash、scrypt 加密认证、QQ 邮件通知。
+desc                  = Agent 备份是一款面向飞牛 fnOS 的轻量级备份与恢复工具，支持增量备份（rsync --link-dest）、zstd 压缩、定时任务、保留策略、软回收 trash、scrypt 加密认证、Webhook 通知与图形化恢复预览。
 maintainer            = 黄元亮 <kiminbaek@example.com>
 distributor           = 小米虾
 platform              = x86
@@ -10,5 +10,5 @@ os_min_version        = 0.9.27
 desktop_uidir         = ui
 service_port          = 12083
 install_dep_apps      = nodejs_v22
-desktop_applaunchname = com.dustinky.agentbackup.Application
+desktop_applaunchname = com.dustinky.agentbackup
 checksum              = 00000000000000000000000000000000

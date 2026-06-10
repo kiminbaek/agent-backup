@@ -289,9 +289,16 @@ async function applyRetention(days) {
     return cleaned;
 }
 
-function listBackups() {
+function listBackups(opts) {
     const config = storage.loadConfig();
+    const o = opts || {};
     return loadMeta(config).backups
+        .filter(b => {
+            if (b.status === 'deleted' && !o.includeDeleted) return false;
+            if (b.status === 'trashed' && !o.includeTrashed) return false;
+            if (o.status && b.status !== o.status) return false;
+            return true;
+        })
         .slice()
         .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
         .map(b => storage.enrichBackup(b, config));
@@ -560,6 +567,41 @@ function sizeAnomalyReport(sourceId, currentSize) {
     return { ok: true, anomalous: growth >= ratio, ratio, growth, previousSize: latest.size, previousHuman: storage.humanSize(latest.size), currentSize, currentHuman: storage.humanSize(currentSize), latestId: latest.id };
 }
 
+function wizardScan(targetPath, opts) {
+    const base = path.resolve(targetPath || '.');
+    if (!storage.pathAllowed(base)) throw new Error('扫描路径不在白名单内');
+    const large = scanLargeFiles(base, (opts && opts.limit) || 20);
+    const suggestions = recommendedExcludes().map(pattern => ({
+        type: 'exclude',
+        pattern,
+        label: excludeLabel(pattern),
+        reason: excludeReason(pattern),
+        checked: ['node_modules', '.git', '.cache', 'tmp', 'logs', '*.log', '*.tmp', '__pycache__'].includes(pattern)
+    }));
+    const totalSize = large.files.reduce((sum, f) => sum + (f.size || 0), 0);
+    return { ok: true, path: base, largeFiles: large.files, suggestions, summary: { scannedFiles: large.total, topFiles: large.files.length, topFilesSize: totalSize, topFilesSizeHuman: storage.humanSize(totalSize) } };
+}
+
+function excludeLabel(pattern) {
+    const map = {
+        'node_modules': '排除 node_modules 依赖目录', '.git': '排除 Git 历史目录', '.cache': '排除缓存目录',
+        'tmp': '排除临时目录', 'logs': '排除日志目录', '*.log': '排除日志文件', '*.tmp': '排除临时文件',
+        '.DS_Store': '排除 macOS 系统文件', '__pycache__': '排除 Python 缓存目录'
+    };
+    return map[pattern] || `排除 ${pattern}`;
+}
+
+function excludeReason(pattern) {
+    if (['node_modules', '.git', '.cache', 'tmp', 'logs', '__pycache__'].includes(pattern)) return '通常体积大且可重新生成，不建议进入备份包。';
+    if (['*.log', '*.tmp'].includes(pattern)) return '日志/临时文件会持续增长，容易撑大备份。';
+    return '常见无须备份文件。';
+}
+
+function estimateWizard(sourcePath, excludes) {
+    const scan = wizardScan(sourcePath, { limit: 50 });
+    return { ok: true, path: scan.path, excludes: Array.isArray(excludes) ? excludes : [], summary: scan.summary, note: '估算基于 Top 大文件扫描，完整精确大小将在正式备份时计算。' };
+}
+
 module.exports = {
     CONFIG_FILE, STATUS_FILE,
     loadMeta, saveMeta, sha256File, run,
@@ -567,5 +609,5 @@ module.exports = {
     listBackups, getBackup, verifyBackup, listArchiveFiles,
     importArchive, trashBackup, setProtected, updateBackupMeta,
     listTrash, trashStats, restoreTrash, deleteTrash, emptyTrash, cleanupTrash,
-    scanLargeFiles, recommendedExcludes, sizeAnomalyReport
+    scanLargeFiles, recommendedExcludes, sizeAnomalyReport, wizardScan, estimateWizard
 };
