@@ -12,9 +12,29 @@ touch "${SERVER_LOG}" 2>/dev/null || true
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] install_callback: 清理旧进程" | tee -a "${SERVER_LOG}"
 
+# root ui 热修（历史老坑）：fnOS 桌面入口按 desktop_uidir=ui 查 /var/apps/<app>/ui/config，
+# 不是只查 /var/apps/<app>/target/ui/config。安装后把 target/ui 同步到 root ui。
+sync_root_ui() {
+    local base="/var/apps/${APP_NAME}"
+    local src="${base}/target/ui"
+    local dst="${base}/ui"
+    if [ -d "${src}" ]; then
+        rm -rf "${dst}" 2>/dev/null || true
+        cp -a "${src}" "${dst}" 2>/dev/null || true
+        chown -R root:root "${dst}" 2>/dev/null || true
+        chmod -R u+rwX,go+rX "${dst}" 2>/dev/null || true
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] install_callback: root ui 已同步 ${dst}" | tee -a "${SERVER_LOG}" || true
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARN] install_callback: target ui 不存在 ${src}" | tee -a "${SERVER_LOG}" || true
+    fi
+}
+
+
 # pkill 旧进程（M150 第 3 处）
 pkill -9 -f "node.*${APP_NAME}.*server" 2>/dev/null || true
 fuser -k -9 "${SERVICE_PORT}/tcp" 2>/dev/null || true
+
+sync_root_ui
 
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] install_callback: OK" | tee -a "${SERVER_LOG}"
 exit 0

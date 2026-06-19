@@ -61,18 +61,23 @@ sync_appcenter_status() {
     local target_status=$1
     log "INFO" "同步 appcenter 状态 → ${target_status}"
 
-    # v1.2.1 修：按当前 fnOS 实测状态机写入
-    #   running + is_stop=true  => 应用中心显示「打开 / 停止 / 卸载」
-    #   stopped + is_stop=true  => 已停用状态（proc-guardian 当前实测记录）
+    # fnOS appcenter 状态机（2026-06-18 装机复验）：
+    #   running + is_stop=true  => 桌面图标/打开入口正常
+    #   running + is_stop=false => 服务 200 但桌面无图标/打开无反应
+    #   stopped + is_stop=true  => 停止状态
     local db_status="start"
-    [[ "${target_status}" == "running" ]] && db_status="running"
-    [[ "${target_status}" == "stopped" || "${target_status}" == "stop" ]] && db_status="stopped"
-
     local db_is_stop="true"
+    if [[ "${target_status}" == "running" ]]; then
+        db_status="running"
+        db_is_stop="true"
+    elif [[ "${target_status}" == "stopped" || "${target_status}" == "stop" ]]; then
+        db_status="stopped"
+        db_is_stop="true"
+    fi
 
     # 用 sudo -u postgres 切换到 postgres 用户更新 DB
     sudo -u "${DB_USER}" psql -d "${DB_NAME}" -c \
-        "UPDATE app SET status='${db_status}', is_stop='${db_is_stop}' WHERE app_name='${APP_NAME}';" \
+        "UPDATE app SET status='${db_status}', is_stop=${db_is_stop} WHERE app_name='${APP_NAME}';" \
         2>&1 | tee -a "${SERVER_LOG}" || log "WARN" "DB 同步失败（非阻塞）"
 }
 
@@ -313,7 +318,7 @@ status() {
         return 0
     fi
     echo "stopped"
-    return 0
+    return 3
 }
 
 # ============ 入口（TRIM_APP_STATUS）============
@@ -321,6 +326,17 @@ main() {
     # 创建日志目录（首次启动时）
     mkdir -p "${LOG_DIR}" 2>/dev/null || true
     touch "${SERVER_LOG}" 2>/dev/null || true
+
+    # 命令行参数优先，避免 QwenPaw/调试环境残留 TRIM_APP_STATUS 导致 `main status` 误进 START
+    if [ -n "${1:-}" ]; then
+        case "${1:-}" in
+            start)   start; return $? ;;
+            stop)    stop; return $? ;;
+            restart) restart; return $? ;;
+            setup)   setup; return $? ;;
+            status)  status; return $? ;;
+        esac
+    fi
 
     # 从环境变量读取状态
     local status="${TRIM_APP_STATUS:-}"

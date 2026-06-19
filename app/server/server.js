@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '1.5.0'; // v1.5.0 恢复增强 + 安全增强
+const VERSION = '2.3.6'; // 启动状态机与打包结构修复版
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -137,7 +137,7 @@ function main() {
 
     // 检查 UI/config 文件是否存在（M129）
     // v1.0.17 改：升级为 fatal 检查 + UI 关键文件全检
-    const uiCheckFiles = ['index.html'];
+    const uiCheckFiles = ['index.html', 'css/style.css', 'lib/api.js', 'lib/app.js'];
     let uiMissing = [];
     for (const f of uiCheckFiles) {
         const fp = path.join(UI_DIR, f);

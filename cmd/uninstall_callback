@@ -1,9 +1,9 @@
 #!/bin/bash
-# uninstall_callback：卸载后回调（不删 backups/）
+# uninstall_callback：卸载后回调（根据 wizard 三选项决定数据处理方式）
 set -e
 
 APP_NAME="com.dustinky.agentbackup"
-APP_DATA_DIR="/vol3/@appdata/${APP_NAME}"
+APP_DATA_DIR="${TRIM_PKGVAR:-/vol3/@appdata/${APP_NAME}}"
 SERVICE_PORT=12083
 LOG_DIR="${APP_DATA_DIR}/logs"
 SERVER_LOG="${LOG_DIR}/server.log"
@@ -11,16 +11,79 @@ SERVER_LOG="${LOG_DIR}/server.log"
 mkdir -p "${LOG_DIR}" 2>/dev/null || true
 touch "${SERVER_LOG}" 2>/dev/null || true
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] uninstall_callback: 卸载后清理" | tee -a "${SERVER_LOG}"
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [$1] $2" | tee -a "${SERVER_LOG}" 2>/dev/null || true
+}
 
-# 停服（pkill 兜底）
+safe_delete_child() {
+    local target="$1"
+    case "${target}" in
+        "${APP_DATA_DIR}"/*)
+            rm -rf "${target}" 2>/dev/null || true
+            ;;
+        *)
+            log "WARN" "拒绝删除非应用数据路径: ${target}"
+            ;;
+    esac
+}
+
+log "INFO" "uninstall_callback: 卸载后清理"
+log "INFO" "APP_DATA_DIR=${APP_DATA_DIR}"
+log "INFO" "wizard_data_action=${wizard_data_action:-<未设置>}"
+
+# 停服（先温和，后兜底）
+PID_FILE="${APP_DATA_DIR}/app.pid"
+if [ -f "${PID_FILE}" ]; then
+    pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
+        log "INFO" "停止应用进程 PID=${pid}"
+        kill -TERM "${pid}" 2>/dev/null || true
+        count=0
+        while kill -0 "${pid}" 2>/dev/null && [ ${count} -lt 10 ]; do
+            sleep 1
+            count=$((count + 1))
+        done
+        if kill -0 "${pid}" 2>/dev/null; then
+            kill -KILL "${pid}" 2>/dev/null || true
+            log "WARN" "进程已强制停止 PID=${pid}"
+        fi
+    fi
+fi
 pkill -9 -f "node.*${APP_NAME}.*server" 2>/dev/null || true
 fuser -k -9 "${SERVICE_PORT}/tcp" 2>/dev/null || true
+sleep 1
 
-# ⚠️ 重要：不删除 ${APP_DATA_DIR}/backups/（M150 卸载保护）
-# 用户主动卸载后，备份数据保留，由用户手动清理
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] backups/ 已保留在: ${APP_DATA_DIR}/backups/" | tee -a "${SERVER_LOG}"
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] 手动清理: rm -rf ${APP_DATA_DIR}" | tee -a "${SERVER_LOG}"
+# 三选项：keep / delete_meta_keep_backups / delete_all
+DATA_ACTION="${wizard_data_action:-keep}"
+log "INFO" "数据处理方式: ${DATA_ACTION}"
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] uninstall_callback: OK" | tee -a "${SERVER_LOG}"
+if [ "${DATA_ACTION}" = "delete_all" ] || [ "${DATA_ACTION}" = "delete" ]; then
+    log "WARN" "用户选择完全清除：删除所有应用数据和备份文件"
+    if [ -d "${APP_DATA_DIR}" ]; then
+        find "${APP_DATA_DIR}" -mindepth 1 -maxdepth 1 -exec rm -rf {} + 2>/dev/null || true
+        log "INFO" "已清空应用数据目录: ${APP_DATA_DIR}"
+    fi
+elif [ "${DATA_ACTION}" = "delete_meta_keep_backups" ]; then
+    log "WARN" "用户选择清除数据但保留备份文件"
+    mkdir -p "${APP_DATA_DIR}" 2>/dev/null || true
+    # 明确保留 backups/，其余应用元数据/日志/缓存/任务记录清除。
+    for item in "${APP_DATA_DIR}"/* "${APP_DATA_DIR}"/.[!.]* "${APP_DATA_DIR}"/..?*; do
+        [ -e "${item}" ] || continue
+        base=$(basename "${item}")
+        if [ "${base}" = "backups" ]; then
+            log "INFO" "保留备份目录: ${item}"
+            continue
+        fi
+        log "INFO" "删除应用数据项: ${item}"
+        safe_delete_child "${item}"
+    done
+    mkdir -p "${APP_DATA_DIR}/backups" 2>/dev/null || true
+    log "INFO" "已清除配置/日志/Token/缓存，保留 backups/"
+else
+    log "INFO" "仅卸载软件：保留所有应用数据"
+    rm -f "${PID_FILE}" 2>/dev/null || true
+    log "INFO" "备份数据位置: ${APP_DATA_DIR}/backups/"
+fi
+
+log "INFO" "uninstall_callback: OK"
 exit 0
