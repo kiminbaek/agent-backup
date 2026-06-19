@@ -1,5 +1,5 @@
 appname               = com.dustinky.agentbackup
-version = 2.4.2
+version = 2.4.3
 display_name          = Agent 备份
 desc                  = 专业级数据备份与恢复工具，支持增量备份、zstd 压缩、定时任务、智能保留策略、软回收垃圾箱、加密认证、Webhook 通知与图形化恢复预览。简单可靠，一键备份，轻松恢复。
 maintainer            = 黄元亮 <kiminbaek@example.com>
