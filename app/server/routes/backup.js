@@ -209,7 +209,7 @@ router.post('/wizard/run', requireAuth, (req, res) => {
     try {
         const body = req.body || {};
         const source = { id: body.id || `wizard-${Date.now()}`, name: body.name || '备份向导', path: body.path, enabled: true, include: ['*'], exclude: Array.isArray(body.excludes) ? body.excludes : [] };
-        startBackgroundBackup([source], { manual: true, wizard: true });
+        const opt={manual:true,wizard:true};if(body.encryptionPassword)opt.encryptionPassword=body.encryptionPassword;startBackgroundBackup([source],opt);
         res.json({ ok: true, started: true, sourceId: source.id });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
