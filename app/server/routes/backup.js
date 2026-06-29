@@ -51,8 +51,12 @@ router.post('/precheck', requireAuth, async (req, res) => {
 router.post('/run', requireAuth, (req, res) => {
     try {
         const config = storage.loadConfig();
-        startBackgroundBackup(config.sources || [], req.body || {});
-        res.json({ ok: true, started: true });
+        let sources = config.sources || [];
+        // v2.6.0：支持 sourceIds 过滤（智能体单独快照）
+        const ids = req.body && Array.isArray(req.body.sourceIds) ? req.body.sourceIds : null;
+        if (ids && ids.length) sources = sources.filter(s => ids.includes(s.id));
+        startBackgroundBackup(sources, req.body || {});
+        res.json({ ok: true, started: true, count: sources.length });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -236,6 +240,12 @@ router.post('/retention/run', requireAuth, async (req, res) => {
         const cleaned = await backup.applyRetention(days);
         res.json({ ok: true, days, cleaned });
     } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// v2.6.0：GFS 分级保留（祖父-父-子）
+router.post('/retention/gfs', requireAuth, async (req, res) => {
+    try { res.json(Object.assign({ ok: true }, await backup.applyGfsRetention())); }
+    catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 module.exports = router;

@@ -1,7 +1,7 @@
 appname               = com.dustinky.agentbackup
-version = 2.5.4
-display_name          = Agent 备份
-desc                  = 专业级数据备份与恢复工具，支持增量备份、zstd 压缩、定时任务、智能保留策略、软回收垃圾箱、加密认证、Webhook 通知与图形化恢复预览。简单可靠，一键备份，轻松恢复。
+version = 2.6.0
+display_name          = 智能体时光机
+desc                  = QwenPaw 智能体记忆的时光机。按智能体备份记忆/配置，一键快照、记忆时光对比（红绿高亮 diff）、增量备份、zstd 压缩、加密、GFS 分级保留、多任务调度、SMTP/QQ 通知与图形化恢复。专为 QwenPaw 多智能体记忆守护打造。
 maintainer            = 黄元亮 <kiminbaek@example.com>
 distributor           = 小米虾
 platform              = x86
@@ -11,4 +11,4 @@ desktop_uidir         = ui
 service_port          = 12083
 install_dep_apps      = nodejs_v22
 desktop_applaunchname = com.dustinky.agentbackup.Application
-checksum              = 00000000000000000000000000000000
+checksum              = baa50f48e48eed4ad8fdc39608a56e38

@@ -48,7 +48,8 @@ function defaultConfig() {
             days: 30,
             keepLast: 10,
             maxTotalSizeGB: 100,
-            warnRatio: 1.5
+            warnRatio: 1.5,
+            gfs: { enabled: false, daily: 7, weekly: 4, monthly: 12 }
         },
         notify: {
             enabled: false,
@@ -58,7 +59,7 @@ function defaultConfig() {
             channels: {
                 qq: { enabled: false, url: '' },
                 feiniu: { enabled: false, url: '' },
-                email: { enabled: false, smtp: '', user: '', note: 'v1.1.0 暂未启用邮件发送' }
+                email: { enabled: false, host: '', port: 465, secure: true, user: '', pass: '', from: '', fromName: 'Agent 备份', to: '', subject: 'Agent 备份通知' }
             }
         }
     };
@@ -80,9 +81,15 @@ function normalizeConfig(config) {
     c.storage = Object.assign({}, d.storage, c.storage || {});
     c.retention = Object.assign({}, d.retention, c.retention || {});
     if (c.retention.keepDays && !c.retention.days) c.retention.days = c.retention.keepDays;
+    c.retention.gfs = Object.assign({}, d.retention.gfs, (c.retention && c.retention.gfs) || {});
     // 兼容 v1.0.x notify.qq.url / notify.feiniu.url
     const oldNotify = c.notify || {};
-    const channels = Object.assign({}, d.notify.channels, oldNotify.channels || {});
+    const userChannels = oldNotify.channels || {};
+    // 深合并每个通道，保留默认字段（email 的 host/port/secure 等）
+    const channels = {};
+    for (const ch of ['qq', 'feiniu', 'email']) {
+        channels[ch] = Object.assign({}, d.notify.channels[ch], userChannels[ch] || {});
+    }
     if (oldNotify.qq && oldNotify.qq.url) channels.qq = Object.assign({}, channels.qq, { enabled: true, url: oldNotify.qq.url });
     if (oldNotify.feiniu && oldNotify.feiniu.url) channels.feiniu = Object.assign({}, channels.feiniu, { enabled: true, url: oldNotify.feiniu.url });
     c.notify = Object.assign({}, d.notify, oldNotify, { channels });

@@ -1,6 +1,26 @@
 # 更新日志 (Changelog)
 
 
+## v2.6.0 - 2026-06-29
+
+### 🤖 重新定位：QwenPaw 智能体时光机
+
+将「通用目录备份工具」收窄为「QwenPaw 智能体记忆的时光机」，备份单位从「目录」升级为「智能体」。
+
+- **智能体仪表盘**（新 Tab）：扫描 QwenPaw workspaces，按智能体卡片展示核心记忆大小、日记忆/专项笔记/对话数量、MEMORY.md 最后修改、最近备份状态。
+- **一键快照**：单个智能体「立即快照」/ 全部智能体「一键快照」，自动生成 `Agent <id> 记忆` 备份源（含 MEMORY/SOUL/PROFILE/AGENTS + memory/）。
+- **记忆时光对比（Memory Diff）**：纯 JS LCS 行级 diff，红绿高亮，支持「快照 vs 快照」与「快照 vs 当前实际文件（CURRENT）」对比；仅对文本（.md/.json），二进制只比 size/sha256。
+- **真实 SMTP 邮件通知**：零依赖自写 SMTP 客户端（net+tls，SSL/STARTTLS + AUTH LOGIN + UTF-8 主题 base64），通知 Tab 新增完整 SMTP 配置表单。
+- **GFS 分级保留**：祖父-父-子保留策略（daily/weekly/monthly），与原有按天数+keepLast 保留并存。
+- **多任务调度**：全局计划（兜底）+ 每源独立 cron 计划；保存配置即热重载调度。
+
+### 🔧 其他
+
+- 备份运行支持 `sourceIds` 过滤，按需备份指定源。
+- `readArchiveMember` 修复归档 `work_<id>/` 顶层前缀解析。
+- notify 配置深合并修复，保留 email 默认字段。
+
+
 ## v1.1.3 - 2026-06-09
 
 一次性补齐 v1.1.1-v1.1.3 功能：

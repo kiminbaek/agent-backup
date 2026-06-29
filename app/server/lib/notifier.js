@@ -4,6 +4,7 @@ const http = require('http');
 const { URL } = require('url');
 const logger = require('./logger');
 const storage = require('./storage');
+const smtp = require('./smtp');
 
 const SUPPRESS_WINDOW = 5 * 60 * 1000;
 const MAX_ALERTS_CACHE = 100;
@@ -53,7 +54,30 @@ function shouldSend(config, event) {
 
 async function sendOne(channel, target, payload) {
     if (!target || !target.enabled) return { channel, ok: false, skipped: true, error: '未启用' };
-    if (channel === 'email') return { channel, ok: false, skipped: true, error: 'email 通道 v1.1.0 暂未集成，请使用 QQ 或飞牛 webhook' };
+    if (channel === 'email') {
+        // v2.6.0：真实 SMTP 发送（lib/smtp.js）
+        if (!target.host || !target.user || !target.to) {
+            return { channel, ok: false, skipped: true, error: '邮件配置不完整（需 host/user/to）' };
+        }
+        try {
+            const res = await smtp.sendMail({
+                host: target.host,
+                port: target.port,
+                secure: target.secure !== false && (Number(target.port) === 465 || target.secure === true),
+                user: target.user,
+                pass: target.pass || target.password || '',
+                from: target.from || target.user,
+                fromName: target.fromName || 'Agent 备份',
+                to: target.to,
+                subject: target.subject || 'Agent 备份通知',
+                text: payload,
+            });
+            return { channel, ok: !!res.ok, accepted: res.accepted };
+        } catch (e) {
+            logger.warn(`邮件通知失败: ${e.message}`);
+            return { channel, ok: false, error: e.message };
+        }
+    }
     if (!target.url) return { channel, ok: false, skipped: true, error: 'URL 为空' };
     try {
         const data = channel === 'qq'

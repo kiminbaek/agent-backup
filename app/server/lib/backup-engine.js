@@ -333,6 +333,64 @@ async function applyRetention(days) {
     return cleaned;
 }
 
+// v2.6.0：GFS（祖父-父-子）分级保留
+//   按源分组，保留最近 N 天的每日备份、M 周的每周备份、K 月的每月备份
+//   未命中保留集合且未受保护的备份移入回收站
+function pickKeepIds(arr, gfs) {
+    const keep = new Set();
+    const sorted = arr.slice().sort((a, b) => b.timestamp - a.timestamp);
+    // daily：最近 daily 天，每天保留最新一个
+    const dayMap = new Map(), weekMap = new Map(), monthMap = new Map();
+    for (const b of sorted) {
+        const d = new Date(b.timestamp || 0);
+        const dayKey = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+        const onejan = new Date(d.getFullYear(), 0, 1);
+        const week = Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7);
+        const weekKey = `${d.getFullYear()}-W${week}`;
+        const monthKey = `${d.getFullYear()}-${d.getMonth()}`;
+        if (!dayMap.has(dayKey)) dayMap.set(dayKey, b);
+        if (!weekMap.has(weekKey)) weekMap.set(weekKey, b);
+        if (!monthMap.has(monthKey)) monthMap.set(monthKey, b);
+    }
+    [...dayMap.values()].slice(0, gfs.daily || 0).forEach(b => keep.add(b.id));
+    [...weekMap.values()].slice(0, gfs.weekly || 0).forEach(b => keep.add(b.id));
+    [...monthMap.values()].slice(0, gfs.monthly || 0).forEach(b => keep.add(b.id));
+    return keep;
+}
+
+async function applyGfsRetention() {
+    const config = storage.loadConfig();
+    const root = storage.ensureBackupRoot(config);
+    const gfs = (config.retention && config.retention.gfs) || { daily: 7, weekly: 4, monthly: 12 };
+    const meta = loadMeta(config);
+    const now = Date.now();
+    const bySource = new Map();
+    for (const b of meta.backups.filter(b => b.status === 'success')) {
+        const arr = bySource.get(b.sourceId) || [];
+        arr.push(b);
+        bySource.set(b.sourceId, arr);
+    }
+    const keepIds = new Set();
+    for (const arr of bySource.values()) {
+        for (const id of pickKeepIds(arr, gfs)) keepIds.add(id);
+    }
+    const cleaned = [];
+    for (const b of meta.backups) {
+        if (b.status !== 'success' || b.protected || keepIds.has(b.id)) continue;
+        if (b.archive && fs.existsSync(b.archive)) {
+            const target = storage.trashPathFor(b.archive, config);
+            fs.renameSync(b.archive, target);
+            b.trashPath = target;
+        }
+        b.status = 'trashed';
+        b.trashedAt = now;
+        cleaned.push(b.id);
+    }
+    saveMeta(meta, config);
+    logger.info(`GFS 保留策略完成 root=${root} keep=${keepIds.size} cleaned=${cleaned.length}`);
+    return { cleaned, kept: keepIds.size, gfs };
+}
+
 function listBackups(opts) {
     const config = storage.loadConfig();
     const o = opts || {};
@@ -383,6 +441,38 @@ async function listArchiveFiles(id, limit, password) {
         const all = out.stdout.split('\n').filter(Boolean);
         return { ok: true, id, encrypted: !!item.encrypted, total: all.length, limit: limit || 500, files: all.slice(0, limit || 500) };
     } finally { dec.cleanup(); }
+}
+
+// v2.6.0：读取归档中单个成员的文本内容（用于 Memory Diff / 预览）
+//   member 必须为归档内相对路径；最大读取 maxBytes，超出截断
+async function readArchiveMember(id, member, password, maxBytes) {
+    if (!member || typeof member !== 'string') throw new Error('member 不合法');
+    if (member.startsWith('/') || member.split('/').includes('..')) throw new Error('非法归档路径');
+    const limit = maxBytes || 2 * 1024 * 1024;
+    const item = getBackup(id);
+    if (!item.exists) throw new Error(`归档文件丢失: ${item.archive}`);
+    const dec = await decryptArchiveToTmp(item, password);
+    const tmpDir = path.join(storage.TMP_DIR, `readmember_${process.pid}_${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    try {
+        // 归档内有 work_<id>/ 顶层目录前缀，需先解析真实成员路径
+        const listOut = await run('tar', ['--zstd', '-tf', dec.archive]);
+        const entries = listOut.stdout.split('\n').filter(Boolean);
+        let resolved = entries.find(e => e === member);
+        if (!resolved) resolved = entries.find(e => e.endsWith('/' + member) && !e.endsWith('/'));
+        if (!resolved) throw new Error('归档中未找到成员: ' + member);
+        await run('tar', ['--zstd', '-xf', dec.archive, '-C', tmpDir, resolved]);
+        const fp = path.join(tmpDir, resolved);
+        if (!fs.existsSync(fp)) throw new Error('归档成员未解出');
+        const st = fs.statSync(fp);
+        const buf = Buffer.alloc(Math.min(st.size, limit));
+        const fd = fs.openSync(fp, 'r');
+        try { fs.readSync(fd, buf, 0, buf.length, 0); } finally { fs.closeSync(fd); }
+        return { ok: true, id, member: resolved, size: st.size, truncated: st.size > limit, content: buf.toString('utf8') };
+    } finally {
+        dec.cleanup();
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }
+    }
 }
 
 async function importArchive(tmpFile, opts) {
@@ -658,8 +748,8 @@ function estimateWizard(sourcePath, excludes) {
 module.exports = {
     CONFIG_FILE, STATUS_FILE,
     loadMeta, saveMeta, sha256File, run, decryptArchiveToTmp,
-    precheck, runBackup, backupOne, applyRetention,
-    listBackups, getBackup, verifyBackup, listArchiveFiles,
+    precheck, runBackup, backupOne, applyRetention, applyGfsRetention,
+    listBackups, getBackup, verifyBackup, listArchiveFiles, readArchiveMember,
     importArchive, trashBackup, setProtected, updateBackupMeta,
     listTrash, trashStats, restoreTrash, deleteTrash, emptyTrash, cleanupTrash,
     scanLargeFiles, recommendedExcludes, sizeAnomalyReport, wizardScan, estimateWizard

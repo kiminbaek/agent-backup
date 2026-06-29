@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.5.4'; // 全代码审查清理版
+const VERSION = '2.6.0'; // QwenPaw 智能体时光机：智能体仪表盘+记忆对比+真实SMTP+GFS保留+多任务调度
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

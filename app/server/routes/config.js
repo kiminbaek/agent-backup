@@ -25,7 +25,8 @@ router.post('/', requireAuth, (req, res) => {
     try {
         storage.saveConfig(newConfig);
         audit.write('config.save', { sources: Array.isArray(newConfig.sources) ? newConfig.sources.length : 0 });
-        if (newConfig.schedule) cron.updateSchedule(newConfig.schedule);
+        // v2.6.0：每次保存都重载调度（全局 + 每源独立计划）
+        try { cron.reload(); } catch (e) { /* ignore */ }
         res.json({ ok: true });
     } catch (e) { res.status(500).json({ error: e.message }); }
 });
