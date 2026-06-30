@@ -98,7 +98,8 @@
 .agent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:12px}
 .agent-card{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
 .agent-card-head{display:flex;align-items:center;gap:12px}
-.agent-avatar{width:42px;height:42px;border-radius:10px;background:#eef2ff;display:grid;place-items:center;font-size:22px}
+.agent-avatar{width:42px;height:42px;border-radius:10px;background:#eef2ff;display:grid;place-items:center;font-size:22px;color:var(--primary)}
+.agent-avatar svg{width:22px;height:22px;display:block}
 .agent-card-head b{font-size:16px}
 .agent-card-head small{display:block;color:var(--muted);margin-top:2px}
 .agent-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:#f8fafc;border-radius:10px;padding:10px}
@@ -121,3 +122,32 @@
 .diff-sign{width:16px;flex:0 0 16px;color:var(--muted);user-select:none}
 .diff-text{flex:1}
 .diff-gap{text-align:center;color:var(--muted);padding:2px 0}
+
+/* v2.7.0 SVG 图标系统（替代不可渲染的 emoji） */
+.nav-ico{display:inline-grid;place-items:center;width:20px;height:20px;flex:0 0 20px}
+.nav-ico svg{width:20px;height:20px;display:block}
+.brand-icon svg,.app-logo svg{width:30px;height:30px;display:block}
+@media(max-width:980px){.nav-ico{width:22px;height:22px}.nav-ico svg{width:22px;height:22px}}
+
+/* v2.7.0 复选框 / 开关行修复（原 input{width:100%} 导致 checkbox 撑满右对齐） */
+input[type=checkbox],input[type=radio]{width:auto;display:inline-block;margin:0}
+.switch-row{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0;padding:11px 0;border-bottom:1px solid var(--line);color:var(--text);font-weight:500;cursor:pointer}
+.switch-row:last-of-type{border-bottom:0}
+.switch-row .switch-label{display:flex;flex-direction:column;gap:2px}
+.switch-row .switch-label small{color:var(--muted);font-weight:400;font-size:12px}
+/* iOS 风格开关 */
+.switch{position:relative;display:inline-block;width:42px;height:24px;flex:0 0 42px}
+.switch input{position:absolute;opacity:0;width:100%;height:100%;margin:0;cursor:pointer;z-index:2}
+.switch .track{position:absolute;inset:0;background:#cbd5e1;border-radius:24px;transition:.2s}
+.switch .track::before{content:"";position:absolute;left:3px;top:3px;width:18px;height:18px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
+.switch input:checked+.track{background:var(--primary)}
+.switch input:checked+.track::before{transform:translateX(18px)}
+/* 通知页字段分组 */
+.field-group{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:14px 0}
+.field-group>.fg-title{font-weight:700;font-size:13px;color:var(--text);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.field-group input{margin-top:8px}
+.field-group input:first-of-type{margin-top:0}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.field-row input{margin-top:8px}
+.notify-actions{display:flex;gap:10px;margin-top:16px}
+.lock-badge{display:inline-block;font-size:11px;font-weight:600;color:#b45309;background:#fef3c7;border-radius:6px;padding:1px 6px;line-height:1.4}

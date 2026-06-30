@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.6.0'; // QwenPaw 智能体时光机：智能体仪表盘+记忆对比+真实SMTP+GFS保留+多任务调度
+const VERSION = '2.7.0'; // UI 全面优化：SVG 图标系统（消除 emoji 空方块）+ 通知页重构（iOS 开关+字段分组）+ 品牌统一+总览去主机名暴露
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
