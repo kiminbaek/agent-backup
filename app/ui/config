@@ -1,8 +1,8 @@
 {
   ".url": {
     "com.dustinky.agentbackup.Application": {
-      "title": "Agent 备份",
-      "desc": "Agent 备份控制台",
+      "title": "智能体时光机",
+      "desc": "QwenPaw 智能体记忆时光机",
       "icon": "images/icon_{0}.png",
       "type": "iframe",
       "protocol": "http",

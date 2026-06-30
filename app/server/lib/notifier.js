@@ -67,9 +67,9 @@ async function sendOne(channel, target, payload) {
                 user: target.user,
                 pass: target.pass || target.password || '',
                 from: target.from || target.user,
-                fromName: target.fromName || 'Agent 备份',
+                fromName: target.fromName || '智能体时光机',
                 to: target.to,
-                subject: target.subject || 'Agent 备份通知',
+                subject: target.subject || '智能体时光机通知',
                 text: payload,
             });
             return { channel, ok: !!res.ok, accepted: res.accepted };
@@ -82,7 +82,7 @@ async function sendOne(channel, target, payload) {
     try {
         const data = channel === 'qq'
             ? JSON.stringify({ msg_type: 'text', content: { text: payload } })
-            : JSON.stringify({ title: 'Agent 备份', content: payload });
+            : JSON.stringify({ title: '智能体时光机', content: payload });
         const res = await postJson(target.url, data);
         const ok = res.status >= 200 && res.status < 300;
         return { channel, ok, status: res.status, body: String(res.body || '').slice(0, 500) };

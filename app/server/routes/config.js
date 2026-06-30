@@ -60,7 +60,7 @@ router.get('/templates', requireAuth, (req, res) => {
         { id: 'qwenpaw-config', name: 'QwenPaw 配置（通用）', path: '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/', mode: 'include', include: ['config.json', 'settings.json', 'workspaces/*/agent.json', 'workspaces/*/skill.json'], excludes: [] },
         { id: 'qwenpaw-skill-pool', name: 'QwenPaw 技能池', path: '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/skill_pool/', mode: 'exclude', excludes: [] },
         { id: 'qwenpaw-appdata', name: 'QwenPaw appdata', path: '/vol3/@appdata/com.dustinky.qwenpaw/', mode: 'exclude', excludes: ['logs/*.log'] },
-        { id: 'agentbackup-appdata', name: 'Agent 备份自身配置', path: '/vol3/@appdata/com.dustinky.agentbackup/', mode: 'exclude', excludes: ['tmp/**'] },
+        { id: 'agentbackup-appdata', name: '智能体时光机自身配置', path: '/vol3/@appdata/com.dustinky.agentbackup/', mode: 'exclude', excludes: ['tmp/**'] },
         { id: 'fpk-files', name: 'fpk 文件夹', path: '/vol3/1000/nas/小虾米的fpk文件/', mode: 'exclude', excludes: ['.trash*/**'] },
         { id: 'xray-data', name: 'xray-proxy-native 数据', path: '/vol3/@appdata/xray-proxy-native/', mode: 'exclude', excludes: ['logs/**'] },
         { id: 'proc-guardian-data', name: 'proc-guardian 数据', path: '/vol3/@appdata/proc-guardian/', mode: 'exclude', excludes: ['logs/**'] }

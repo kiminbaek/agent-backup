@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.15.1'; // 质量修复：品牌包装、安装向导、图标与页面精修
+const VERSION = '2.16.0'; // 可视化定时编辑器 + 桌面入口品牌修复 + 总览计划信息
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

@@ -59,7 +59,7 @@ function defaultConfig() {
             channels: {
                 qq: { enabled: false, url: '' },
                 feiniu: { enabled: false, url: '' },
-                email: { enabled: false, host: '', port: 465, secure: true, user: '', pass: '', from: '', fromName: 'Agent 备份', to: '', subject: 'Agent 备份通知' }
+                email: { enabled: false, host: '', port: 465, secure: true, user: '', pass: '', from: '', fromName: '智能体时光机', to: '', subject: '智能体时光机通知' }
             }
         }
     };

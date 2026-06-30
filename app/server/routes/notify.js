@@ -18,7 +18,7 @@ router.post('/config', requireAuth, (req, res) => {
 
 router.post('/test', requireAuth, async (req, res) => {
     const { message } = req.body || {};
-    const text = message || '[Agent 备份] 测试通知';
+    const text = message || '[智能体时光机] 测试通知';
     try { res.json(await notifier.notify(text, 'failure')); }
     catch (e) { res.status(500).json({ error: e.message }); }
 });

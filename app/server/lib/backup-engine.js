@@ -112,7 +112,7 @@ async function checkDiskSpace(estimatedSize, config) {
         if (free < need) {
             const msg = `磁盘空间不足: free=${free}, need=${need}`;
             logger.warn(msg);
-            await notifier.notify(`[Agent 备份] 警告: ${msg}`, 'failure');
+            await notifier.notify(`[智能体时光机] 警告: ${msg}`, 'failure');
         }
         return free;
     } catch (e) {
@@ -280,7 +280,7 @@ async function runBackup(sources, options) {
     try {
         const enabled = (sources || config.sources || []).filter(s => s.enabled !== false);
         if (enabled.length === 0) {
-            await notifier.notify('[Agent 备份] 今日无启用备份源，未执行备份', 'nosource');
+            await notifier.notify('[智能体时光机] 今日无启用备份源，未执行备份', 'nosource');
             return { ok: true, empty: true, results: [] };
         }
         for (const s of enabled) {
@@ -293,7 +293,7 @@ async function runBackup(sources, options) {
             }
         }
         const ok = results.every(r => r.ok);
-        await notifier.notify(`[Agent 备份] ${ok ? '备份完成' : '备份存在失败'}\n${results.map(r => r.ok ? `✅ ${r.source}: ${storage.humanSize(r.size)}` : `❌ ${r.source}: ${r.error}`).join('\n')}`, ok ? 'success' : 'failure');
+        await notifier.notify(`[智能体时光机] ${ok ? '备份完成' : '备份存在失败'}\n${results.map(r => r.ok ? `✅ ${r.source}: ${storage.humanSize(r.size)}` : `❌ ${r.source}: ${r.error}`).join('\n')}`, ok ? 'success' : 'failure');
         return { ok, results };
     } finally {
         unlock(fd);
