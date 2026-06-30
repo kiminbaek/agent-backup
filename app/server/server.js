@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.11.0'; // 时光机闭环：Diff 弹窗支持恢复旧版本单文件，restoreFile 兼容 work_<id> 前缀解析
+const VERSION = '2.12.0'; // 恢复安全增强：恢复前最终 Diff 预览 + 双确认 + 保护快照展示 + 恢复后立即快照
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
