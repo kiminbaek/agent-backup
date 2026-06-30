@@ -220,4 +220,89 @@ router.post('/diff', requireAuth, async (req, res) => {
     }
 });
 
+
+function listMarkdownFiles(root, limit) {
+    const out = [];
+    function walk(dir, rel) {
+        if (out.length >= limit) return;
+        for (const e of listDir(dir)) {
+            if (out.length >= limit) return;
+            const fp = path.join(dir, e.name);
+            const rp = rel ? rel + '/' + e.name : e.name;
+            if (e.isDirectory()) {
+                if (!['node_modules', '.git', 'media', 'tool_results', 'sessions', 'backup', 'backups', '.trash'].includes(e.name)) walk(fp, rp);
+            } else if (e.isFile() && e.name.toLowerCase().endsWith('.md')) out.push({ rel: rp, path: fp, size: fileSize(fp), mtime: statSafe(fp)?.mtimeMs || 0 });
+        }
+    }
+    if (exists(root)) walk(root, '');
+    return out;
+}
+function ageDays(ms) { return ms ? Math.floor((Date.now() - ms) / 86400000) : null; }
+function addIssue(issues, severity, type, title, detail, file) { issues.push({ severity, type, title, detail, file: file || '' }); }
+function healthLevel(score) { return score < 60 ? 'critical' : score < 82 ? 'warn' : 'ok'; }
+
+// v2.13.0：记忆健康检查（只读扫描，不修改用户文件）
+router.post('/health-check', requireAuth, (req, res) => {
+    const root = path.resolve((req.body && req.body.root) || DEFAULT_ROOT);
+    if (!validators.isPathAllowed(root)) return res.status(400).json({ error: 'root 不在允许路径白名单' });
+    if (!exists(root)) return res.status(400).json({ error: 'root 不存在: ' + root });
+    const workspaces = path.join(root, 'workspaces');
+    const agents = listDir(workspaces).filter(e => e.isDirectory()).map(e => e.name).sort();
+    let backups = [];
+    try { backups = backup.listBackups({}); } catch (_) { backups = []; }
+    function backupsFor(agent) {
+        return backups.filter(b => b.status === 'success' && (String(b.sourceId || '').includes(`agent-${agent}-`) || String(b.sourceName || '').includes(`Agent ${agent}`))).sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+    }
+    const cards = agents.map(agent => {
+        const dir = path.join(workspaces, agent);
+        const issues = [];
+        let score = 100;
+        const required = ['MEMORY.md', 'SOUL.md', 'PROFILE.md', 'AGENTS.md'];
+        const missing = required.filter(f => !exists(path.join(dir, f)));
+        if (missing.length) { score -= missing.length * 8; addIssue(issues, missing.length >= 2 ? 'critical' : 'warn', 'missing-core', '核心记忆文件缺失', missing.join(', ')); }
+        const mdFiles = listMarkdownFiles(dir, 800);
+        const coreBytes = required.reduce((n, f) => n + fileSize(path.join(dir, f)), 0);
+        const memStats = dirSize(path.join(dir, 'memory'), 8000);
+        const lastBackup = backupsFor(agent)[0] || null;
+        const backupAge = lastBackup ? ageDays(lastBackup.timestamp) : null;
+        if (!lastBackup) { score -= 25; addIssue(issues, 'critical', 'no-backup', '尚无成功快照', '建议立即为该智能体创建快照'); }
+        else if (backupAge > 7) { score -= 15; addIssue(issues, 'warn', 'old-backup', '最近快照超过 7 天', `${backupAge} 天前`); }
+        else if (backupAge > 3) { score -= 8; addIssue(issues, 'warn', 'old-backup', '最近快照超过 3 天', `${backupAge} 天前`); }
+        if (coreBytes > 1024 * 1024) { score -= 20; addIssue(issues, 'critical', 'large-core', '核心记忆过大', human(coreBytes)); }
+        else if (coreBytes > 256 * 1024) { score -= 10; addIssue(issues, 'warn', 'large-core', '核心记忆偏大', human(coreBytes)); }
+        if (memStats.bytes > 20 * 1024 * 1024) { score -= 18; addIssue(issues, 'critical', 'large-memory-dir', 'memory/ 目录过大', human(memStats.bytes)); }
+        else if (memStats.bytes > 5 * 1024 * 1024) { score -= 9; addIssue(issues, 'warn', 'large-memory-dir', 'memory/ 目录偏大', human(memStats.bytes)); }
+        const bigMd = mdFiles.filter(f => f.size > 128 * 1024).sort((a,b)=>b.size-a.size).slice(0,5);
+        if (bigMd.length) { score -= Math.min(15, bigMd.length * 4); addIssue(issues, 'warn', 'large-md', '存在超大 Markdown 文件', bigMd.map(f => `${f.rel} ${human(f.size)}`).join('；')); }
+        const memDays = mdFiles.filter(f => f.rel.startsWith('memory/') && /\.md$/i.test(f.rel)).length;
+        if (memDays > 365) { score -= 12; addIssue(issues, 'warn', 'many-daily', '日记忆文件超过 365 个', `${memDays} 个`); }
+        else if (memDays > 120) { score -= 6; addIssue(issues, 'warn', 'many-daily', '日记忆文件较多', `${memDays} 个`); }
+        const memorySt = statSafe(path.join(dir, 'MEMORY.md'));
+        const memoryAge = memorySt ? ageDays(memorySt.mtimeMs) : null;
+        if (memoryAge !== null && memoryAge > 30) { score -= 5; addIssue(issues, 'warn', 'stale-memory', 'MEMORY.md 超过 30 天未更新', `${memoryAge} 天`); }
+        const seen = new Map();
+        let repeated = 0;
+        for (const f of mdFiles.slice(0, 300)) {
+            if (f.size > 512 * 1024) continue;
+            try {
+                const lines = fs.readFileSync(f.path, 'utf8').split(/\r?\n/);
+                for (const line of lines) {
+                    const t = line.replace(/\s+/g, ' ').trim();
+                    if (t.length < 60 || t.startsWith('|') || t.startsWith('```')) continue;
+                    const k = t.toLowerCase();
+                    const v = seen.get(k) || { count: 0, files: new Set() };
+                    v.count++; v.files.add(f.rel); seen.set(k, v);
+                }
+            } catch (_) { /* ignore */ }
+        }
+        for (const v of seen.values()) if (v.count >= 3 && v.files.size >= 2) repeated++;
+        if (repeated) { score -= Math.min(12, repeated * 3); addIssue(issues, 'warn', 'duplicates', '疑似重复长段落', `${repeated} 处（为保护隐私不展示原文）`); }
+        score = Math.max(0, Math.min(100, Math.round(score)));
+        const level = healthLevel(score);
+        return { agent, score, level, issues, stats: { mdFiles: mdFiles.length, memDays, coreSize: coreBytes, coreSizeHuman: human(coreBytes), memSize: memStats.bytes, memSizeHuman: human(memStats.bytes), lastBackupAt: lastBackup ? lastBackup.timestamp : null, backupAge } };
+    });
+    const summary = { agents: cards.length, ok: cards.filter(c => c.level === 'ok').length, warn: cards.filter(c => c.level === 'warn').length, critical: cards.filter(c => c.level === 'critical').length, issues: cards.reduce((n, c) => n + c.issues.length, 0) };
+    res.json({ ok: true, root, summary, cards });
+});
+
 module.exports = router;

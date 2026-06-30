@@ -11,6 +11,7 @@ storageInfo(){return this.get('/api/storage/info')},validateStorage(root,create)
 notifyConfig(){return this.get('/api/notify/config')},saveNotify(notify){return this.post('/api/notify/config',{notify})},testNotify(message){return this.post('/api/notify/test',{message})},
 restoreList(){return this.get('/api/restore/list')},verifyRestore(id){return this.get('/api/restore/verify/'+encodeURIComponent(id))},previewRestore(id,targetPath,password){return this.post('/api/restore/preview',{id,targetPath,password:password||''})},executeRestore(id,targetPath,password){return this.post('/api/restore/execute',{id,targetPath,password:password||'',confirm:'YES'})},restoreFile(id,member,targetPath,password){return this.post('/api/restore/file',{id,member,targetPath,password:password||'',confirm:'YES'})},
 qwenpawAnalyze(root){return this.post('/api/qwenpaw/analyze',{root})},
+qwenpawHealthCheck(root){return this.post('/api/qwenpaw/health-check',root?{root}:{})},
 qwenpawDashboard(root){return this.post('/api/qwenpaw/dashboard',root?{root}:{})},
 qwenpawDiff(oldId,newId,member,opt){return this.post('/api/qwenpaw/diff',Object.assign({oldId,newId,member},opt||{}))},
 retentionGfs(){return this.post('/api/backup/retention/gfs',{})}

@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.12.0'; // 恢复安全增强：恢复前最终 Diff 预览 + 双确认 + 保护快照展示 + 恢复后立即快照
+const VERSION = '2.13.0'; // 记忆健康检查：只读扫描备份状态、核心文件、体积、超大 Markdown、疑似重复内容
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
