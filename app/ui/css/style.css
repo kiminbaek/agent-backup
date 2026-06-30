@@ -112,6 +112,8 @@
 .agent-lb.warn{color:#b45309}
 .agent-actions{display:flex;gap:8px;flex-wrap:wrap}
 .diff-box{margin-top:10px;border:1px solid var(--line);border-radius:10px;padding:10px;max-height:50vh;overflow:auto;background:#fff}
+.quick-diff{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.quick-diff .btn{flex:1;min-width:140px}
 .diff-head{display:flex;gap:12px;font-weight:700;margin-bottom:8px}
 .diff-add{color:var(--ok)}
 .diff-del{color:var(--danger)}

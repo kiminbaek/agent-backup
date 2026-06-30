@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.9.0'; // 精简冗余：删 tools 工具页/sources 重复定时调度面板，sources 降级为「高级·源管理」，聚焦按智能体备份
+const VERSION = '2.10.0'; // 时光机 Diff 增强：动态文件列表（含 memory/*.md）+ 快捷对比（最近两次/最新vs当前）+ 快照后记忆变化引导
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
