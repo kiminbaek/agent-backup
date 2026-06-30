@@ -230,7 +230,7 @@ function listMarkdownFiles(root, limit) {
             const fp = path.join(dir, e.name);
             const rp = rel ? rel + '/' + e.name : e.name;
             if (e.isDirectory()) {
-                if (!['node_modules', '.git', 'media', 'tool_results', 'sessions', 'backup', 'backups', '.trash'].includes(e.name)) walk(fp, rp);
+                if (!['node_modules', '.git', 'media', 'tool_results', 'sessions', 'backup', 'backups', '.trash', 'trash'].includes(e.name)) walk(fp, rp);
             } else if (e.isFile() && e.name.toLowerCase().endsWith('.md')) out.push({ rel: rp, path: fp, size: fileSize(fp), mtime: statSafe(fp)?.mtimeMs || 0 });
         }
     }
@@ -238,7 +238,7 @@ function listMarkdownFiles(root, limit) {
     return out;
 }
 function ageDays(ms) { return ms ? Math.floor((Date.now() - ms) / 86400000) : null; }
-function addIssue(issues, severity, type, title, detail, file) { issues.push({ severity, type, title, detail, file: file || '' }); }
+function addIssue(issues, severity, type, title, detail, file, files) { issues.push({ severity, type, title, detail, file: file || '', files: files || [] }); }
 function healthLevel(score) { return score < 60 ? 'critical' : score < 82 ? 'warn' : 'ok'; }
 
 // v2.13.0：记忆健康检查（只读扫描，不修改用户文件）
@@ -273,7 +273,7 @@ router.post('/health-check', requireAuth, (req, res) => {
         if (memStats.bytes > 20 * 1024 * 1024) { score -= 18; addIssue(issues, 'critical', 'large-memory-dir', 'memory/ 目录过大', human(memStats.bytes)); }
         else if (memStats.bytes > 5 * 1024 * 1024) { score -= 9; addIssue(issues, 'warn', 'large-memory-dir', 'memory/ 目录偏大', human(memStats.bytes)); }
         const bigMd = mdFiles.filter(f => f.size > 128 * 1024).sort((a,b)=>b.size-a.size).slice(0,5);
-        if (bigMd.length) { score -= Math.min(15, bigMd.length * 4); addIssue(issues, 'warn', 'large-md', '存在超大 Markdown 文件', bigMd.map(f => `${f.rel} ${human(f.size)}`).join('；')); }
+        if (bigMd.length) { score -= Math.min(15, bigMd.length * 4); addIssue(issues, 'warn', 'large-md', '存在超大 Markdown 文件', bigMd.map(f => `${f.rel} ${human(f.size)}`).join('；'), '', bigMd.map(f => ({ rel: f.rel, size: f.size, sizeHuman: human(f.size), mtime: f.mtime }))); }
         const memDays = mdFiles.filter(f => f.rel.startsWith('memory/') && /\.md$/i.test(f.rel)).length;
         if (memDays > 365) { score -= 12; addIssue(issues, 'warn', 'many-daily', '日记忆文件超过 365 个', `${memDays} 个`); }
         else if (memDays > 120) { score -= 6; addIssue(issues, 'warn', 'many-daily', '日记忆文件较多', `${memDays} 个`); }
@@ -295,8 +295,9 @@ router.post('/health-check', requireAuth, (req, res) => {
                 }
             } catch (_) { /* ignore */ }
         }
-        for (const v of seen.values()) if (v.count >= 3 && v.files.size >= 2) repeated++;
-        if (repeated) { score -= Math.min(12, repeated * 3); addIssue(issues, 'warn', 'duplicates', '疑似重复长段落', `${repeated} 处（为保护隐私不展示原文）`); }
+        const repeatedFiles = new Set();
+        for (const v of seen.values()) if (v.count >= 3 && v.files.size >= 2) { repeated++; for (const f of v.files) repeatedFiles.add(f); }
+        if (repeated) { score -= Math.min(12, repeated * 3); addIssue(issues, 'warn', 'duplicates', '疑似重复长段落', `${repeated} 处（为保护隐私不展示原文）`, '', Array.from(repeatedFiles).slice(0, 8).map(rel => ({ rel }))); }
         score = Math.max(0, Math.min(100, Math.round(score)));
         const level = healthLevel(score);
         return { agent, score, level, issues, stats: { mdFiles: mdFiles.length, memDays, coreSize: coreBytes, coreSizeHuman: human(coreBytes), memSize: memStats.bytes, memSizeHuman: human(memStats.bytes), lastBackupAt: lastBackup ? lastBackup.timestamp : null, backupAge } };

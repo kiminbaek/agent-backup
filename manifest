@@ -1,5 +1,5 @@
 appname               = com.dustinky.agentbackup
-version = 2.13.0
+version = 2.14.0
 display_name          = 智能体时光机
 desc                  = QwenPaw 智能体记忆的时光机。按智能体备份记忆/配置，一键快照、记忆时光对比（红绿高亮 diff）、增量备份、zstd 压缩、加密、GFS 分级保留、多任务调度、SMTP/QQ 通知与图形化恢复。专为 QwenPaw 多智能体记忆守护打造。
 maintainer            = 黄元亮 <kiminbaek@example.com>
