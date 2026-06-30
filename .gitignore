@@ -27,3 +27,6 @@ Thumbs.db
 # fnpack build dir（如果有）
 *-build/
 */build/
+
+# fpk 产物（走 Release，不入库）
+*.fpk

@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.7.0'; // UI 全面优化：SVG 图标系统（消除 emoji 空方块）+ 通知页重构（iOS 开关+字段分组）+ 品牌统一+总览去主机名暴露
+const VERSION = '2.8.0'; // 计划任务/保留策略埋藏功能可视化：修复 schedule.enabled 持久化 bug + GFS 分级保留 UI + 每源独立计划展示
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

@@ -37,7 +37,7 @@ function defaultConfig() {
             include: ['*.md', '*.json', '*.txt'],
             exclude: ['node_modules', '.git', '*.log', '*.tmp']
         }],
-        schedule: '0 3 * * *',
+        schedule: { enabled: true, cron: '0 3 * * *' },
         storage: {
             root: DEFAULT_BACKUP_ROOT,
             layout: 'year-month-source',
@@ -76,8 +76,11 @@ function normalizeConfig(config) {
         if (!Array.isArray(x.exclude)) x.exclude = [];
         return x;
     });
-    if (c.schedule && typeof c.schedule === 'object') c.schedule = c.schedule.cron || d.schedule;
-    c.schedule = c.schedule || d.schedule;
+    // v2.8.0：schedule 规范为 {enabled, cron} 对象（向后兼容字符串）
+    if (typeof c.schedule === 'string') c.schedule = { enabled: true, cron: c.schedule };
+    if (!c.schedule || typeof c.schedule !== 'object') c.schedule = { enabled: true, cron: d.schedule.cron };
+    if (typeof c.schedule.cron !== 'string' || !c.schedule.cron) c.schedule.cron = d.schedule.cron;
+    if (typeof c.schedule.enabled !== 'boolean') c.schedule.enabled = true;
     c.storage = Object.assign({}, d.storage, c.storage || {});
     c.retention = Object.assign({}, d.retention, c.retention || {});
     if (c.retention.keepDays && !c.retention.days) c.retention.days = c.retention.keepDays;

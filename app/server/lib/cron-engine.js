@@ -49,7 +49,12 @@ function start() {
     }
 
     // 2) 全局计划：备份「未设独立计划」的源
-    const globalSchedule = config.schedule || '0 3 * * *';
+    const sch = (config.schedule && typeof config.schedule === 'object') ? config.schedule : { enabled: true, cron: config.schedule || '0 3 * * *' };
+    const globalSchedule = sch.cron || '0 3 * * *';
+    if (sch.enabled === false) {
+        logger.info('[cron] 全局计划已禁用（仅每源独立计划生效）');
+        return true;
+    }
     if (cron.validate(globalSchedule)) {
         globalTask = cron.schedule(globalSchedule, () => {
             const fresh = loadConfig();
@@ -73,8 +78,9 @@ function getStatus() {
             perSource.push({ id: s.id, name: s.name, schedule: s.schedule, running: sourceTasks.has(s.id) });
         }
     }
+    const sch = (config.schedule && typeof config.schedule === 'object') ? config.schedule : { enabled: true, cron: config.schedule || '0 3 * * *' };
     return {
-        global: { running: globalTask !== null, schedule: config.schedule || '0 3 * * *' },
+        global: { running: globalTask !== null, enabled: sch.enabled !== false, schedule: sch.cron || '0 3 * * *' },
         perSource,
         totalTasks: (globalTask ? 1 : 0) + sourceTasks.size,
     };
@@ -82,10 +88,15 @@ function getStatus() {
 
 function updateSchedule(newSchedule) {
     // 兼容旧接口：更新全局计划并重启全部任务
-    const sched = (newSchedule && typeof newSchedule === 'object') ? (newSchedule.cron || newSchedule) : newSchedule;
-    if (sched && !cron.validate(sched)) throw new Error(`无效的 cron 表达式: ${sched}`);
     const config = loadConfig();
-    if (sched) config.schedule = sched;
+    if (newSchedule && typeof newSchedule === 'object' && !Array.isArray(newSchedule)) {
+        const cronStr = newSchedule.cron || (config.schedule && config.schedule.cron) || '0 3 * * *';
+        if (cronStr && !cron.validate(cronStr)) throw new Error(`无效的 cron 表达式: ${cronStr}`);
+        config.schedule = { enabled: newSchedule.enabled !== false, cron: cronStr };
+    } else if (typeof newSchedule === 'string') {
+        if (newSchedule && !cron.validate(newSchedule)) throw new Error(`无效的 cron 表达式: ${newSchedule}`);
+        config.schedule = { enabled: true, cron: newSchedule };
+    }
     storage.saveConfig(config);
     start();
     return true;

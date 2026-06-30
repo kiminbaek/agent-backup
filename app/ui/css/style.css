@@ -145,6 +145,9 @@ input[type=checkbox],input[type=radio]{width:auto;display:inline-block;margin:0}
 /* 通知页字段分组 */
 .field-group{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin:14px 0}
 .field-group>.fg-title{font-weight:700;font-size:13px;color:var(--text);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.kv-row{display:flex;justify-content:space-between;align-items:center;padding:6px 2px;border-bottom:1px solid var(--line);font-size:13px}
+.kv-row:last-child{border-bottom:none}
+.kv-row code{background:var(--bg-soft,#f3f4f6);padding:2px 8px;border-radius:4px;font-size:12px}
 .field-group input{margin-top:8px}
 .field-group input:first-of-type{margin-top:0}
 .field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
