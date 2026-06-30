@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.16.0'; // 可视化定时编辑器 + 桌面入口品牌修复 + 总览计划信息
+const VERSION = '2.17.0'; // 策略中心每组定时按钮 + 总览快速设置弹窗
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
