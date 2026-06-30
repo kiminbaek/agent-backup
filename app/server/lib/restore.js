@@ -135,14 +135,21 @@ async function restoreFile(id, member, targetPath, password) {
     fs.mkdirSync(tmpDir, { recursive: true });
     const dec = await backup.decryptArchiveToTmp(item, password);
     try {
-        await run('tar', ['--zstd', '-xf', dec.archive, '-C', tmpDir, member]);
-        const src = path.join(tmpDir, member);
+        // 归档内通常带 work_<id>/ 顶层目录；兼容前端传 workspaces/<agent>/<file> 的短路径
+        const listOut = await run('tar', ['--zstd', '-tf', dec.archive]);
+        const entries = listOut.stdout.split('\n').filter(Boolean);
+        let resolved = entries.find(e => e === member);
+        if (!resolved) resolved = entries.find(e => e.endsWith('/' + member) && !e.endsWith('/'));
+        if (!resolved) throw new Error('归档中未找到成员: ' + member);
+        await run('tar', ['--zstd', '-xf', dec.archive, '-C', tmpDir, resolved]);
+        const src = path.join(tmpDir, resolved);
         if (!fs.existsSync(src)) throw new Error('归档成员未解出');
         fs.mkdirSync(targetPath, { recursive: true });
-        const out = path.join(targetPath, path.basename(member));
+        const out = path.join(targetPath, path.basename(resolved));
+        const snapshot = await snapshotTarget(targetPath);
         await run('rsync', ['-a', src, out]);
-        audit.write('restore.file', { id, member, targetPath, out });
-        return { ok: true, id, member, targetPath, out };
+        audit.write('restore.file', { id, member, resolved, targetPath, out, snapshot });
+        return { ok: true, id, member, resolved, targetPath, out, snapshot };
     } finally {
         dec.cleanup();
         try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ }

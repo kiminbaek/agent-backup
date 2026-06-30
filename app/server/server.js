@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.10.0'; // 时光机 Diff 增强：动态文件列表（含 memory/*.md）+ 快捷对比（最近两次/最新vs当前）+ 快照后记忆变化引导
+const VERSION = '2.11.0'; // 时光机闭环：Diff 弹窗支持恢复旧版本单文件，restoreFile 兼容 work_<id> 前缀解析
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

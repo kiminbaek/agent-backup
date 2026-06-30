@@ -1,6 +1,26 @@
 # 更新日志 (Changelog)
 
 
+## v2.11.0 - 2026-06-30
+
+### 🔁 记忆单文件回滚闭环
+
+补齐「智能体时光机」最关键的闭环：看变化 → 选版本 → 恢复旧版本。
+
+- **Diff 弹窗新增恢复入口**：在「记忆时光对比」弹窗底部新增「恢复旧版本」按钮，恢复的是左侧「旧快照」中的当前所选 Markdown 文件。
+- **自动定位当前目标目录**：根据 QwenPaw 根目录、智能体 ID 和所选文件路径自动计算目标目录；核心文件恢复到 `workspaces/<agent>/`，日记忆文件恢复到 `workspaces/<agent>/memory/`。
+- **二次确认防误操作**：确认框展示快照 ID、文件名、目标目录，并明确提示会覆盖当前文件。
+- **后端 restoreFile 兼容时光机 member**：`/api/restore/file` 支持前端传 `workspaces/<agent>/<file>`，自动解析归档真实 `work_<id>/workspaces/...` 前缀。
+- **单文件恢复前保护快照**：`restoreFile()` 执行覆盖前会先调用 `snapshotTarget(targetPath)`，返回并审计记录保护快照路径。
+
+### 验证
+
+- `node --check app/ui/lib/app.js app/server/lib/restore.js app/server/server.js` 通过。
+- 后端安全测试：短 member `workspaces/003/MEMORY.md` 成功解析到归档真实路径，并恢复到临时目录 `ab-restore-test`，未覆盖真实记忆文件。
+- 单文件恢复前保护快照已返回：`/vol3/@appdata/com.dustinky.agentbackup/restore-snapshots/...tar.zst`。
+- 生产 v2.11.0 UI 实测：Diff 弹窗存在「恢复旧版本」按钮；确认框正确展示快照、文件、目标目录；`memory/2026-06-30.md` 的目标目录正确为 `.../workspaces/003/memory`；测试中拦截确认返回 false，未执行真实覆盖。
+
+
 ## v2.10.0 - 2026-06-30
 
 ### 🕰️ Memory Diff 时光机体验增强
