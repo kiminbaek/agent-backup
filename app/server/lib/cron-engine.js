@@ -5,9 +5,17 @@ const cron = require('node-cron');
 const logger = require('./logger');
 const backup = require('./backup-engine');
 const storage = require('./storage');
+const fs = require('fs');
+const path = require('path');
 
 let globalTask = null;
 const sourceTasks = new Map(); // sourceId -> cron task
+const CRON_STATE_FILE = path.join(storage.TMP_DIR, 'cron_state.json');
+function loadCronState(){try{return JSON.parse(fs.readFileSync(CRON_STATE_FILE,'utf8'))}catch(_){return {runs:{}}}}
+function saveCronState(st){try{storage.ensureDir(path.dirname(CRON_STATE_FILE),0o700);fs.writeFileSync(CRON_STATE_FILE,JSON.stringify(st,null,2))}catch(_){}}
+function markRun(id,status,error){const st=loadCronState();st.runs=st.runs||{};st.runs[id]={lastRun:Date.now(),lastStatus:status,lastError:error||''};saveCronState(st)}
+function cronHuman(c){const m={'0 3 * * *':'每天 03:00','0 */6 * * *':'每 6 小时','0 * * * *':'每小时','0 3 * * 0':'每周日 03:00','0 3 1 * *':'每月 1 日 03:00'};return m[c]||c}
+function nextRunApprox(c){const now=new Date(), n=new Date(now); if(c==='0 * * * *'){n.setHours(now.getHours()+1,0,0,0)}else if(c==='0 */6 * * *'){const h=Math.floor(now.getHours()/6)*6+6;n.setHours(h,0,0,0)}else if(c==='0 3 * * *'){n.setHours(3,0,0,0);if(n<=now)n.setDate(n.getDate()+1)}else if(c==='0 3 * * 0'){n.setHours(3,0,0,0);while(n<=now||n.getDay()!==0)n.setDate(n.getDate()+1)}else if(c==='0 3 1 * *'){n.setDate(1);n.setHours(3,0,0,0);if(n<=now)n.setMonth(n.getMonth()+1)}else return null; return n.getTime()}
 
 function loadConfig() {
     return storage.loadConfig();
@@ -15,7 +23,9 @@ function loadConfig() {
 
 async function tickSources(sources, label) {
     logger.info(`[cron] 触发定时备份 (${label}) 源数=${sources.length}`);
-    await backup.runBackup(sources);
+    const id = label || 'global';
+    try { await backup.runBackup(sources); markRun(id, 'success'); }
+    catch (e) { markRun(id, 'failure', e.message); throw e; }
 }
 
 function stop() {
@@ -75,12 +85,13 @@ function getStatus() {
     const perSource = [];
     for (const s of (config.sources || [])) {
         if (s.scheduleEnabled && s.schedule) {
-            perSource.push({ id: s.id, name: s.name, schedule: s.schedule, running: sourceTasks.has(s.id) });
+            { const r=(loadCronState().runs||{})['源 '+s.id]||(loadCronState().runs||{})[s.id]||{}; perSource.push({ id: s.id, name: s.name, schedule: s.schedule, scheduleText: cronHuman(s.schedule), nextRun: nextRunApprox(s.schedule), running: sourceTasks.has(s.id), lastRun:r.lastRun||0, lastStatus:r.lastStatus||'', lastError:r.lastError||'' }); }
         }
     }
     const sch = (config.schedule && typeof config.schedule === 'object') ? config.schedule : { enabled: true, cron: config.schedule || '0 3 * * *' };
+    const state=loadCronState(); const gr=(state.runs||{})['全局']||{};
     return {
-        global: { running: globalTask !== null, enabled: sch.enabled !== false, schedule: sch.cron || '0 3 * * *' },
+        global: { running: globalTask !== null, enabled: sch.enabled !== false, schedule: sch.cron || '0 3 * * *', scheduleText: cronHuman(sch.cron || '0 3 * * *'), nextRun: nextRunApprox(sch.cron || '0 3 * * *'), lastRun: gr.lastRun||0, lastStatus: gr.lastStatus||'', lastError: gr.lastError||'' },
         perSource,
         totalTasks: (globalTask ? 1 : 0) + sourceTasks.size,
     };

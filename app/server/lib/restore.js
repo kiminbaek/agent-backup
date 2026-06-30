@@ -79,6 +79,84 @@ async function snapshotTarget(targetPath) {
     return { skipped: false, path: out, size, human: storage.humanSize(size) };
 }
 
+
+function parentWritable(targetPath) {
+    const abs = path.resolve(targetPath || '');
+    let p = fs.existsSync(abs) ? abs : path.dirname(abs);
+    while (p && p !== path.dirname(p) && !fs.existsSync(p)) p = path.dirname(p);
+    try { fs.accessSync(p, fs.constants.W_OK); return { ok: true, path: p }; }
+    catch (e) { return { ok: false, path: p, error: e.message }; }
+}
+
+async function archiveEntries(item, password, limit) {
+    const dec = await backup.decryptArchiveToTmp(item, password);
+    try {
+        const out = await run('tar', ['--zstd', '-tf', dec.archive], 5 * 60 * 1000);
+        return out.stdout.split('\n').filter(Boolean).slice(0, limit || 5000);
+    } finally { dec.cleanup(); }
+}
+
+function qwenpawEntryStats(entries) {
+    const hasWorkspaces = entries.some(e => /(^|\/)workspaces\//.test(e));
+    const hasAgents = entries.filter(e => /(^|\/)workspaces\/[^/]+\/MEMORY\.md$/.test(e)).length;
+    const hasGlobal = entries.some(e => /(^|)(config\.json|settings\.json)$/.test(e));
+    const hasSkills = entries.some(e => /(^|\/)skill_pool\//.test(e) || /(^|\/)skills\//.test(e));
+    return { hasWorkspaces, agentsWithMemory: hasAgents, hasGlobal, hasSkills };
+}
+
+async function preflight(id, targetPath, opts) {
+    opts = opts || {};
+    if (!validators.isPathAllowed(targetPath)) throw new Error('目标路径不在白名单');
+    const abs = path.resolve(targetPath);
+    const exists = fs.existsSync(abs);
+    const checks = [];
+    checks.push({ name: '目标路径白名单', ok: true, detail: abs });
+    if (exists) {
+        const st = fs.statSync(abs);
+        checks.push({ name: '目标目录存在', ok: st.isDirectory(), detail: st.isDirectory() ? '存在且是目录' : '路径存在但不是目录' });
+        try { fs.accessSync(abs, fs.constants.W_OK); checks.push({ name: '目标目录可写', ok: true }); }
+        catch (e) { checks.push({ name: '目标目录可写', ok: false, detail: e.message }); }
+    } else {
+        checks.push({ name: '目标目录存在', ok: !!opts.createMissing, detail: opts.createMissing ? '目录不存在，恢复时将自动创建' : '目录不存在' });
+        const pw = parentWritable(abs);
+        checks.push({ name: '父目录可写', ok: pw.ok, detail: pw.ok ? pw.path : (pw.path + ': ' + pw.error) });
+    }
+    const item = backup.getBackup(id);
+    checks.push({ name: '备份记录存在', ok: !!item && !!item.id, detail: item && item.id || id });
+    checks.push({ name: '归档文件存在', ok: !!item && !!item.exists, detail: item && item.archive || '' });
+    if (!item || !item.exists) return { ok: false, id, targetPath: abs, createMissing: !!opts.createMissing, risk: riskLevel(abs), checks };
+    try { const v = await backup.verifyBackup(id); checks.push({ name: '归档校验', ok: !!v.ok, detail: v.ok ? 'sha256 匹配' : (v.error || '校验失败') }); }
+    catch (e) { checks.push({ name: '归档校验', ok: false, detail: e.message }); }
+    let entries = [];
+    try { entries = await archiveEntries(item, opts.password || '', 3000); checks.push({ name: '归档可读取', ok: entries.length > 0, detail: `${entries.length} 条目` }); }
+    catch (e) { checks.push({ name: '归档可读取', ok: false, detail: e.message }); }
+    const qs = qwenpawEntryStats(entries);
+    if (opts.qwenpaw) {
+        checks.push({ name: 'QwenPaw workspaces', ok: !!qs.hasWorkspaces, detail: qs.hasWorkspaces ? `检测到 ${qs.agentsWithMemory} 个 MEMORY.md` : '未检测到 workspaces/' });
+        checks.push({ name: '技能/全局配置检测', ok: true, detail: `全局配置=${qs.hasGlobal?'有':'无'}，技能=${qs.hasSkills?'有':'无'}` });
+    }
+    const ok = checks.every(c => c.ok !== false);
+    return { ok, id, targetPath: abs, createMissing: !!opts.createMissing, qwenpaw: !!opts.qwenpaw, risk: riskLevel(abs), archive: { encrypted: !!item.encrypted, size: item.size, sourceName: item.sourceName, sourcePath: item.sourcePath }, qwenpawStats: qs, checks, sampleEntries: entries.slice(0, 50) };
+}
+
+async function restoreQwenPaw(id, targetPath, opts) {
+    opts = opts || {};
+    const pf = await preflight(id, targetPath, { password: opts.password || '', createMissing: true, qwenpaw: true });
+    if (!pf.ok) throw new Error('恢复预检未通过: ' + pf.checks.filter(c => c.ok === false).map(c => c.name + ':' + c.detail).join('; '));
+    const abs = path.resolve(targetPath);
+    if (!fs.existsSync(abs)) fs.mkdirSync(abs, { recursive: true });
+    await backup.verifyBackup(id);
+    const snapshot = await snapshotTarget(abs);
+    const item = backup.getBackup(id);
+    const { tmpDir, extracted } = await extractToTmp(item, opts.password || '');
+    try {
+        await run('rsync', ['-a', `${extracted}/`, `${abs}/`]);
+        audit.write('restore.qwenpaw', { id, targetPath: abs, snapshot, preflight: pf.qwenpawStats });
+        logger.info(`QwenPaw 整体恢复完成: ${id} → ${abs}`);
+        return { ok: true, id, targetPath: abs, snapshot, preflight: pf };
+    } finally { try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* ignore */ } }
+}
+
 async function preview(id, targetPath, password) {
     const v = validators.validateRestoreTarget(targetPath);
     if (!v.valid) throw new Error(v.error);
@@ -156,4 +234,4 @@ async function restoreFile(id, member, targetPath, password) {
     }
 }
 
-module.exports = { list, verify, preview, restore, restoreFile, riskLevel, snapshotTarget };
+module.exports = { list, verify, preview, restore, restoreFile, riskLevel, snapshotTarget, preflight, restoreQwenPaw };

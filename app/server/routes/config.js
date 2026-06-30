@@ -33,6 +33,26 @@ router.post('/', requireAuth, (req, res) => {
 
 
 
+router.get('/schedule/status', requireAuth, (req, res) => {
+    try { res.json({ ok: true, ...cron.getStatus() }); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+router.post('/schedule/source/:id', requireAuth, (req, res) => {
+    const { enabled, cron: cronExpr } = req.body || {};
+    try {
+        const config = storage.loadConfig();
+        const s = (config.sources || []).find(x => x.id === req.params.id);
+        if (!s) return res.status(404).json({ error: '备份源不存在' });
+        s.scheduleEnabled = !!enabled;
+        if (cronExpr) s.schedule = String(cronExpr);
+        storage.saveConfig(config);
+        cron.reload();
+        audit.write('schedule.source.save', { id: s.id, enabled: s.scheduleEnabled, cron: s.schedule || '' });
+        res.json({ ok: true });
+    } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
 router.get('/templates', requireAuth, (req, res) => {
     res.json({ ok: true, templates: [
         { id: 'qwenpaw-workspaces', name: 'QwenPaw 工作区', path: '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/', mode: 'exclude', excludes: ['**/node_modules/**', '**/.git/**', '**/.cache/**', '**/tool_results/**'] },

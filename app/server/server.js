@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.14.0'; // 健康检查可操作化：查看文件、一键快照风险智能体、重新扫描 + 排版优化
+const VERSION = '2.15.0'; // 备份策略中心 + 定时任务增强 + QwenPaw 恢复预检 + 移动端更多导航
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

@@ -16,6 +16,21 @@ router.get('/verify/:id', requireAuth, async (req, res) => {
     catch (e) { res.status(400).json({ error: e.message }); }
 });
 
+router.post('/preflight', requireAuth, async (req, res) => {
+    const { id, targetPath, password, createMissing, qwenpaw } = req.body || {};
+    if (!id || !targetPath) return res.status(400).json({ error: '缺少 id 或 targetPath' });
+    try { res.json(await restore.preflight(id, targetPath, { password, createMissing: !!createMissing, qwenpaw: !!qwenpaw })); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+router.post('/qwenpaw', requireAuth, async (req, res) => {
+    const { id, targetPath, confirm, password } = req.body || {};
+    if (!id || !targetPath) return res.status(400).json({ error: '缺少 id 或 targetPath' });
+    if (confirm !== 'YES') return res.status(400).json({ error: '需在 confirm 字段输入 "YES" 二次确认' });
+    try { res.json(await restore.restoreQwenPaw(id, targetPath, { password })); }
+    catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 router.post('/preview', requireAuth, async (req, res) => {
     const { id, targetPath, password } = req.body || {};
     if (!id || !targetPath) return res.status(400).json({ error: '缺少 id 或 targetPath' });

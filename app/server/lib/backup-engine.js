@@ -168,6 +168,7 @@ async function precheck(sources, config) {
 }
 
 async function backupOne(source, config, options) {
+    if (source.requiresEncryption && !(options && options.encryptionPassword)) throw new Error(`源 ${source.name || source.id} 包含敏感配置，必须使用加密密码备份`);
     const v = validators.validateSource(source);
     if (!v.valid) throw new Error(`源校验失败: ${v.errors.join(', ')}`);
 

@@ -52,7 +52,7 @@ function makeGroup(id, name, root, include, exclude, risk, defaultSelected, desc
 }
 
 router.post('/analyze', requireAuth, (req, res) => {
-    const root = path.resolve((req.body && req.body.root) || '');
+    const root = path.resolve((req.body && req.body.root) || DEFAULT_ROOT);
     if (!root) return res.status(400).json({ error: 'root 必填' });
     if (!validators.isPathAllowed(root)) return res.status(400).json({ error: 'root 不在允许路径白名单' });
     if (!exists(root)) return res.status(400).json({ error: 'root 不存在' });
@@ -81,6 +81,11 @@ router.post('/analyze', requireAuth, (req, res) => {
                 { agent, files: cfgFiles.length }));
         }
     }
+
+    const fullStats = dirSize(root, 50000);
+    groups.push(makeGroup('qwenpaw-full', '完整 QwenPaw 数据目录', root,
+        [], ['node_modules/***','.git/***','**/node_modules/***','**/.git/***','**/tool_results/***','**/sessions/***','**/media/***','**/backup/***','**/backups/***','**/trash/***','**/.trash/***','**/cache/***','**/logs/***','**/*token*','**/*secret*','**/*password*','**/*credential*','**/.env','**/auth.json'],
+        'high', false, '备份整个 QwenPaw 数据目录（默认排除缓存、会话、媒体、回收站和密钥类文件），适合重装系统/重装 QwenPaw 前后迁移。', { size: human(fullStats.bytes), files: fullStats.files }));
 
     const globalFiles = ['config.json', 'settings.json', 'HEARTBEAT.md', 'token_usage.json', 'inbox_events.json'].filter(f => exists(path.join(root, f)));
     const globalHits = globalFiles.flatMap(f => detectSensitive(path.join(root, f)));
@@ -120,6 +125,50 @@ router.post('/analyze', requireAuth, (req, res) => {
         ['qwenpaw.log*', 'logs/***', 'workspaces/*/tool_results/***', 'workspaces/*/.npm/***', 'workspaces/*/media/***'], [], 'low', false, '排障时有用，日常迁移和长期备份通常不建议选择。', {}));
 
     res.json({ ok: true, root, summary: { agents: agents.length, groups: groups.length, hasGlobalConfig: exists(path.join(root, 'config.json')), sensitiveFiles: secretFiles.length }, groups });
+});
+
+
+
+// v2.15.0：备份策略应用 —— 用户选择范围后生成/更新备份源
+router.post('/strategy/apply', requireAuth, (req, res) => {
+    try {
+        const storage = require('../lib/storage');
+        const cron = require('../lib/cron-engine');
+        const root = path.resolve((req.body && req.body.root) || DEFAULT_ROOT);
+        const selected = Array.isArray(req.body && req.body.selected) ? req.body.selected : [];
+        const requireEncryption = !!(req.body && req.body.requireEncryption);
+        const schedule = req.body && req.body.schedule || '';
+        if (!validators.isPathAllowed(root)) return res.status(400).json({ error: 'root 不在允许路径白名单' });
+        if (!exists(root)) return res.status(400).json({ error: 'root 不存在: ' + root });
+        if (!selected.length) return res.status(400).json({ error: '至少选择一个备份范围' });
+        const fakeReq = { body: { root } };
+        let groups = [];
+        // 复用本文件的分析逻辑成本高，这里按稳定模板生成，路径仍由 root 动态决定。
+        const agents = listDir(path.join(root, 'workspaces')).filter(e => e.isDirectory()).map(e => e.name).sort();
+        const templates = [];
+        for (const agent of agents) {
+            templates.push({ id:`agent-${agent}-memory`, name:`Agent ${agent} 记忆`, include:[`workspaces/${agent}/MEMORY.md`,`workspaces/${agent}/SOUL.md`,`workspaces/${agent}/PROFILE.md`,`workspaces/${agent}/AGENTS.md`,`workspaces/${agent}/memory/***`, `workspaces/${agent}/*_dev_notes.md`, `workspaces/${agent}/skills/***`], exclude:[`workspaces/${agent}/tool_results/***`,`workspaces/${agent}/media/***`,`workspaces/${agent}/sessions/***`,`workspaces/${agent}/backup/***`,`workspaces/${agent}/backups/***`,`workspaces/${agent}/trash/***`,`workspaces/${agent}/.trash/***`] });
+        }
+        templates.push({ id:'qwenpaw-full', name:'QwenPaw 整体数据目录', mode:'exclude', include:[], exclude:['node_modules/***','.git/***','**/node_modules/***','**/.git/***','**/tool_results/***','**/sessions/***','**/media/***','**/backup/***','**/backups/***','**/trash/***','**/.trash/***','**/cache/***','**/logs/***','**/*token*','**/*secret*','**/*password*','**/*credential*','**/.env','**/auth.json'] });
+        templates.push({ id:'global-settings', name:'QwenPaw 全局设置', include:['config.json','settings.json','agent.json','agents.json','channels/***','cron/***','mcp/***','workspaces/*/agent.json'], exclude:[] });
+        templates.push({ id:'skill-pool', name:'QwenPaw 技能池', include:['skill_pool/***','workspaces/*/skills/***'], exclude:['**/node_modules/***','**/.git/***'] });
+        templates.push({ id:'secrets', name:'QwenPaw 敏感配置与密钥', include:['**/*token*','**/*secret*','**/*password*','**/*credential*','**/.env','**/auth.json'], exclude:['**/node_modules/***','**/.git/***'] });
+        if (selected.includes('secrets') && !requireEncryption) return res.status(400).json({ error: '选择密钥/敏感配置时，必须启用加密备份要求' });
+        const config = storage.loadConfig();
+        config.sources = Array.isArray(config.sources) ? config.sources : [];
+        let changed = 0;
+        for (const id of selected) {
+            const t = templates.find(x => x.id === id);
+            if (!t) continue;
+            const src = { id:'strategy-'+id, name:t.name, path:root, enabled:true, mode:t.mode || 'include', include:t.include || [], exclude:t.exclude || [], requiresEncryption: id==='secrets' || !!requireEncryption };
+            if (schedule) { src.scheduleEnabled = true; src.schedule = schedule; }
+            const old = config.sources.find(x => x.id === src.id);
+            if (old) Object.assign(old, src); else config.sources.push(src);
+            changed++;
+        }
+        storage.saveConfig(config); try { cron.reload(); } catch (_) {}
+        res.json({ ok:true, changed, selected, requireEncryption, schedule });
+    } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // v2.6.0：智能体仪表盘 —— 每个 agent 的记忆体量/文件数/最近修改/最近备份
