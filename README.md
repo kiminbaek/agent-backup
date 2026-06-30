@@ -1,149 +1,63 @@
-# Agent 备份 (Agent Backup)
+# 智能体时光机 (QwenPaw Time Machine)
 
-> **飞牛 fnOS 应用**：定时备份 / 手动备份 / 一键恢复 / 通知推送
+面向 **QwenPaw** 的本地智能体记忆备份、快照对比、健康检查与安全恢复工具，运行在飞牛 fnOS 上。
 
-## 项目简介
+它不是普通目录备份工具，而是专门保护 QwenPaw 智能体资产：`MEMORY.md`、每日笔记、工作区配置、技能池、全局设置、对话/会话记录，以及完整 QwenPaw 数据目录。
 
-Agent 备份是一款运行在飞牛 fnOS 上的本地备份应用，专注于**关键目录的定时备份 + 快速恢复**。
+## 核心能力
 
-### 核心功能
+- **智能体仪表盘**：查看每个智能体的核心记忆、专项笔记、每日笔记、对话数量和最近快照。
+- **一键快照**：对单个智能体或全部智能体执行记忆快照。
+- **Memory Diff**：对比两次快照，或对比最新快照与当前文件。
+- **单文件恢复**：从快照中恢复单个记忆文件，恢复前提供最终 Diff 预览和双确认。
+- **恢复安全增强**：恢复前保护快照、恢复预检、归档校验、目标路径白名单、缺失目录提示。
+- **记忆健康检查**：发现无快照、旧快照、超大 Markdown、重复长段落、核心文件缺失等风险。
+- **备份策略中心**：选择智能体记忆、完整 QwenPaw、全局设置、技能池、插件/MCP、对话会话、日志缓存、密钥分组。
+- **敏感配置保护**：密钥/敏感配置默认不备份；选择 `secrets` 时必须启用加密要求。
+- **定时任务与保留策略**：支持全局计划、每源计划、保留天数、容量上限与 GFS 分级保留。
+- **本地通知与审计**：记录操作审计，支持通知开关和多类日志查看。
 
-- **多源备份**：可同时配置多个备份源（笔记 / 配置 / 工作区等）
-- **增量备份**：基于 `rsync --link-dest` 的硬链接增量，节省磁盘空间
-- **定时调度**：`node-cron` 表达式（默认每天凌晨 3 点）
-- **一键恢复**：UI 选择备份点 + 输入"YES"二次确认 → 原子恢复
-- **三通道通知**：QQ webhook → 飞牛消息 → 邮件，自动降级
-- **告警抑制**：5 分钟内同类通知合并
-- **保留策略**：30 天固定保留 + 软回收 trash
-- **空间预警**：1.5x 备份大小预警
-- **安全认证**：`scrypt` 加盐哈希 + 5 次失败锁 5 分钟
+## 适用场景
 
-### 技术栈
+- 升级 QwenPaw 前，先给全部智能体做快照。
+- 调整记忆、技能或全局配置后，回看变更差异。
+- 某个智能体记忆被误改时，恢复单个文件。
+- 新设备/重装系统后，预检并恢复 QwenPaw 数据。
+- 定期检查智能体记忆体积、重复内容和快照新鲜度。
 
-| 维度 | 选型 |
-|:-----|:-----|
-| 运行时 | Node.js v22（飞牛官方 `nodejs_v22`）|
-| Web 框架 | Express 4.21+ |
-| 定时任务 | node-cron |
-| 备份引擎 | rsync + tar.zst + sha256 |
-| 前端 | 单页 HTML（无框架，原生 JS）|
+## 安装
 
-## 装机步骤
+1. 从 GitHub Releases 下载 `com.dustinky.agentbackup-v*.fpk`。
+2. 在飞牛 fnOS 应用中心手动安装 fpk。
+3. 安装向导中阅读并同意使用条款。
+4. 桌面点击 **智能体时光机** 图标打开应用。
+5. 首次进入后建议先打开 **备份策略**，确认备份范围，再执行一次手动快照。
 
-1. 下载 `com.dustinky.agentbackup.fpk` 文件
-2. 飞牛桌面 → 应用中心 → 手动安装 → 选择 fpk
-3. 等待安装完成（**首次安装会要求 root 权限**）
-4. 桌面点击 "Agent 备份" 图标 → 浏览器打开 `http://<NAS_IP>:12083`
-5. **首次访问**：使用默认密码 `admin` 登录（**装机后请立即修改**）
-6. 配置备份源 + 定时规则 + 通知通道
-7. 测试手动备份 → 验证恢复 → 正式启用
+## 安全建议
 
-### 默认凭据
+- 恢复真实 QwenPaw 数据前，先执行 **恢复预检** 和 **预览**。
+- 不要对真实记忆目录做无保护的破坏性恢复。
+- 选择密钥/敏感配置备份时必须启用加密，并妥善保存密码。
+- 完整 QwenPaw 备份默认排除 `node_modules`、`.git`、缓存、日志、媒体、密钥类文件等膨胀或敏感内容。
 
-| 字段 | 值 |
-|:-----|:---|
-| 用户名 | `admin` |
-| 初始密码 | `admin` |
-
-**⚠️ 安全提示**：首次登录后**必须**在「设置 → 修改密码」修改默认密码。
-
-## 配置
-
-### 备份源
-
-```json
-{
-  "sources": [
-    {
-      "id": "src-001",
-      "name": "001 笔记（共享软链）",
-      "path": "/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/001",
-      "enabled": true,
-      "include": ["*.md", "*.json"],
-      "exclude": ["node_modules", ".git", "*.log"]
-    }
-  ]
-}
-```
-
-### 定时规则
-
-默认 `0 3 * * *`（每天凌晨 3 点）。可通过 crontab 表达式自定义：
-- `0 */6 * * *`：每 6 小时
-- `0 3 * * 0`：每周日凌晨 3 点
-- `0 3 1 * *`：每月 1 号凌晨 3 点
-
-### 通知通道
-
-```json
-{
-  "notify": {
-    "qq":      { "url": "https://qq-webhook-url" },
-    "feiniu":  { "url": "https://feiniu-api-url" },
-    "email":   { "smtp": "smtp.gmail.com:587", "user": "..." }
-  }
-}
-```
-
-## 开发
-
-### 目录结构
-
-```
-agent-backup-source/
-├── app/                  # Node.js 源码
-│   ├── lib/              # 核心模块（auth / backup-engine / cron-engine / ...）
-│   ├── routes/           # Express 路由
-│   ├── ui/               # 前端（单页 HTML）
-│   ├── server.js         # 入口
-│   └── package.json
-├── cmd/                  # 飞牛生命周期脚本（main / install_callback / ...）
-├── config/               # privilege / resource
-├── web/                  # fpk 打包资源（ICON）
-├── manifest.json         # fpk 元数据
-├── LICENSE
-├── README.md
-└── CHANGELOG.md
-```
-
-### 打包
+## 开发与打包
 
 ```bash
-cd /vol3/@appshare/com.dustinky.qwenpaw/agent-backup-source/com.dustinky.agentbackup
-tar -czf app.tgz -C app server ui
-fnpack build
-md5sum com.dustinky.agentbackup.fpk  # 填入 manifest.json 的 checksum
-fnpack build  # 第二遍生成最终 fpk
+# 语法检查
+/var/apps/nodejs_v22/target/bin/node --check app/ui/lib/app.js
+/var/apps/nodejs_v22/target/bin/node --check app/server/server.js
+
+# fnOS 打包，注意不要使用 /tmp
+TMPDIR=/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/003/ab-build-tmp fnpack build -d .
 ```
 
-### 调试
+## 运行路径
 
-```bash
-# 手动启动（脱离 fnOS 生命周期）
-/var/apps/com.dustinky.agentbackup/cmd/main start
+- 应用 ID：`com.dustinky.agentbackup`
+- 默认端口：`12083`
+- 应用数据：`/vol3/@appdata/com.dustinky.agentbackup`
+- 备份目录：默认 `/vol3/@appdata/com.dustinky.agentbackup/backup`
 
-# 查看日志
-tail -f /vol3/@appdata/com.dustinky.agentbackup/logs/server.log
+## 许可证
 
-# 状态查询
-/var/apps/com.dustinky.agentbackup/cmd/main status
-```
-
-## 故障排查
-
-| 症状 | 原因 | 修法 |
-|:-----|:-----|:-----|
-| 应用中心显示"启用"但点不开 | 状态机死锁 | `sudo -u postgres psql -d appcenter -c "UPDATE app SET status='running' WHERE app_name='com.dustinky.agentbackup';"` |
-| 端口 12083 占用冲突 | 旧进程残留 | `fuser -k 12083/tcp` + 重启应用 |
-| 备份失败 `rsync: permission denied` | 备份源无读权限 | `chmod +r <source_path>` 或加入 `agent_backup` 用户组 |
-| QQ 通知不发送 | webhook URL 错误 | 检查 config.json 的 `notify.qq.url` |
-
-## 许可
-
-本项目采用 [Apache License 2.0](LICENSE) 开源。
-
-## 作者
-
-- **黄元亮**（小米虾）—— 维护者
-- 项目地址：`/vol3/@appshare/com.dustinky.qwenpaw/agent-backup-source/`
-- 飞牛 fnOS 应用
+本项目为本地自托管工具，按“现状”提供。请在执行恢复操作前自行确认备份完整性、恢复目标和风险。

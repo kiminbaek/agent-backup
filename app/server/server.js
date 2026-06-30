@@ -1,4 +1,4 @@
-// server.js：Agent 备份 Express 入口
+// server.js：智能体时光机 Express 入口
 const express = require('express');
 const path = require('path');
 const os = require('os');
@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.15.0'; // 备份策略中心 + 定时任务增强 + QwenPaw 恢复预检 + 移动端更多导航
+const VERSION = '2.15.1'; // 质量修复：品牌包装、安装向导、图标与页面精修
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -132,7 +132,7 @@ app.use((err, req, res, next) => {
 
 // 启动
 function main() {
-    logger.info(`==== Agent 备份启动 PORT=${PORT} ====`);
+    logger.info(`==== 智能体时光机启动 PORT=${PORT} ====`);
     logger.info(`UI 目录: ${UI_DIR}`);
 
     // 检查 UI/config 文件是否存在（M129）
