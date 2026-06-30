@@ -9,7 +9,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.8.0'; // 计划任务/保留策略埋藏功能可视化：修复 schedule.enabled 持久化 bug + GFS 分级保留 UI + 每源独立计划展示
+const VERSION = '2.9.0'; // 精简冗余：删 tools 工具页/sources 重复定时调度面板，sources 降级为「高级·源管理」，聚焦按智能体备份
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
