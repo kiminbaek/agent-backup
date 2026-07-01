@@ -8,7 +8,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.20.0'; // 页面重构 + UX 优化
+const VERSION = '2.20.1'; // 页面重构 + UX 优化
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -17,7 +17,6 @@ app.use(express.json({ limit: '1mb' }));
 // 安全响应头
 app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
     res.setHeader('Referrer-Policy', 'no-referrer');
     next();
 });

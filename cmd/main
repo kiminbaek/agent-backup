@@ -61,15 +61,17 @@ sync_appcenter_status() {
     local target_status=$1
     log "INFO" "同步 appcenter 状态 → ${target_status}"
 
-    # fnOS appcenter 状态机（2026-06-18 装机复验）：
-    #   running + is_stop=true  => 桌面图标/打开入口正常
-    #   running + is_stop=false => 服务 200 但桌面无图标/打开无反应
-    #   stopped + is_stop=true  => 停止状态
+    # fnOS appcenter 状态机（2026-07-01 实机复验）：
+    #   running + is_stop=false + is_uninstall=false => UI 显示“打开”且网关入口正常
+    #   running + is_stop=true 或 is_uninstall=true => 服务可监听但入口会拒绝/禁用
+    #   stopped + is_stop=true => 停止状态
     local db_status="start"
     local db_is_stop="true"
+    local db_is_uninstall="false"
+    local db_is_non_manual_stop="false"
     if [[ "${target_status}" == "running" ]]; then
         db_status="running"
-        db_is_stop="true"
+        db_is_stop="false"
     elif [[ "${target_status}" == "stopped" || "${target_status}" == "stop" ]]; then
         db_status="stopped"
         db_is_stop="true"
@@ -77,7 +79,7 @@ sync_appcenter_status() {
 
     # 用 sudo -u postgres 切换到 postgres 用户更新 DB
     sudo -u "${DB_USER}" psql -d "${DB_NAME}" -c \
-        "UPDATE app SET status='${db_status}', is_stop=${db_is_stop} WHERE app_name='${APP_NAME}';" \
+        "UPDATE app SET status='${db_status}', is_stop=${db_is_stop}, is_uninstall=${db_is_uninstall}, is_non_manual_stop=${db_is_non_manual_stop} WHERE app_name='${APP_NAME}';" \
         2>&1 | tee -a "${SERVER_LOG}" || log "WARN" "DB 同步失败（非阻塞）"
 }
 
