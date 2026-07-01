@@ -8,7 +8,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.21.1'; // UX 修正版：备份结果反馈 + 智能体页 + 更多页
+const VERSION = '2.21.2'; // 全功能恢复版：19项功能回归 + 白名单去硬编码 + 统一弹窗 + 登录初始化修复
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

@@ -2,27 +2,39 @@
 const path = require('path');
 const fs = require('fs');
 
-// 允许的备份/恢复根路径白名单
-const ALLOWED_ROOTS = [
-    '/vol3/@appshare/',
-    '/vol3/@appdata/',
-    '/vol3/1000/',
+// v2.21.2 改：去掉硬编码白名单（不再绑死 /vol3/），改为“系统关键路径黑名单”
+// 目的：应用需通用适配任意 fnOS/Linux 设备，磁盘挂载点可能是 /vol1、/volume1、/mnt 等；
+// 之前 startsWith('/vol3/1000/') 既拦了根目录本身（无尾斜杠），又绑死了用户设备路径。
+// 现在允许任意用户数据路径，仅拒绝写入/读取会破坏系统的关键目录。
+const DENY_ROOTS = [
+    '/etc', '/bin', '/sbin', '/boot', '/sys', '/proc', '/dev',
+    '/usr', '/lib', '/lib32', '/lib64', '/libx32', '/root', '/run',
 ];
 
-// v1.0.20 加：拒绝路径遍历（.. 或符号链接跳出白名单）
+// 判断 abs 是否命中某个禁止根（等于该根或在其之下）
+function isDenied(abs) {
+    return DENY_ROOTS.some(root => abs === root || abs.startsWith(root + '/'));
+}
+
+// v2.21.2：拒绝路径遍历（..）+ 拒绝系统关键目录；其余用户路径一律放行
 function isPathAllowed(targetPath) {
     if (!targetPath || typeof targetPath !== 'string') return false;
     // 拒绝任何含 '..' 的路径
     if (targetPath.split('/').includes('..')) return false;
+    // 必须是绝对路径
+    if (!targetPath.startsWith('/')) return false;
     const abs = path.resolve(targetPath);
-    // 拒绝符号链接跳出白名单
+    // 拒绝根目录本身
+    if (abs === '/') return false;
+    // 解析符号链接后再判定，防止软链跳进系统目录
+    let real = abs;
     try {
-        const real = fs.realpathSync(abs);
-        return ALLOWED_ROOTS.some(root => real.startsWith(root));
+        real = fs.realpathSync(abs);
     } catch (_) {
-        // 路径不存在时，先看 abs 自身是否在白名单
-        return ALLOWED_ROOTS.some(root => abs.startsWith(root));
+        // 路径不存在时用 abs 本身判定
+        real = abs;
     }
+    return !isDenied(real) && !isDenied(abs);
 }
 
 // v1.0.20 加：批量校验 sources（id 唯一性 + 路径不重复）
@@ -81,7 +93,7 @@ function validateSource(source) {
     if (!source.id) errors.push('缺少 id');
     if (!source.name) errors.push('缺少 name');
     if (!source.path) errors.push('缺少 path');
-    if (!isPathAllowed(source.path)) errors.push(`path 不在白名单: ${source.path}`);
+    if (!isPathAllowed(source.path)) errors.push(`path 不允许（系统关键目录或非法路径）: ${source.path}`);
     if (source.path && !pathExists(source.path)) errors.push(`path 不存在: ${source.path}`);
     return { valid: errors.length === 0, errors };
 }
@@ -101,7 +113,7 @@ function validateRestoreTarget(targetPath) {
 }
 
 module.exports = {
-    ALLOWED_ROOTS,
+    DENY_ROOTS,
     isPathAllowed,
     pathExists,
     isDirectory,

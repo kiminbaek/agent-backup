@@ -8,7 +8,8 @@ const APP_DATA_DIR = '/vol3/@appdata/com.dustinky.agentbackup';
 const CONFIG_FILE = path.join(APP_DATA_DIR, 'config/config.json');
 const TMP_DIR = path.join(APP_DATA_DIR, 'tmp');
 const DEFAULT_BACKUP_ROOT = path.join(APP_DATA_DIR, 'backups');
-const ALLOWED_ROOTS = ['/vol3/@appshare/', '/vol3/@appdata/', '/vol3/1000/'];
+const ALLOWED_ROOTS = ['/vol3/@appshare/', '/vol3/@appdata/', '/vol3/1000/']; // v2.21.2 保留导出兼容，实际判定改用 DENY_ROOTS
+const DENY_ROOTS = ['/etc', '/bin', '/sbin', '/boot', '/sys', '/proc', '/dev', '/usr', '/lib', '/lib32', '/lib64', '/libx32', '/root', '/run'];
 
 function ensureDir(dir, mode) {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -114,13 +115,17 @@ function saveConfig(config) {
 function pathAllowed(targetPath) {
     if (!targetPath || typeof targetPath !== 'string') return false;
     if (targetPath.split('/').includes('..')) return false;
+    if (!targetPath.startsWith('/')) return false;
     const abs = path.resolve(targetPath);
+    if (abs === '/') return false;
+    let real = abs;
     try {
-        const real = fs.existsSync(abs) ? fs.realpathSync(abs) : abs;
-        return ALLOWED_ROOTS.some(root => real.startsWith(root));
+        real = fs.existsSync(abs) ? fs.realpathSync(abs) : abs;
     } catch (_) {
-        return ALLOWED_ROOTS.some(root => abs.startsWith(root));
+        real = abs;
     }
+    const denied = p => DENY_ROOTS.some(root => p === root || p.startsWith(root + '/'));
+    return !denied(real) && !denied(abs);
 }
 
 function validateBackupRoot(root, create) {

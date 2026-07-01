@@ -6,129 +6,261 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#2563eb">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'">
-  <title>智能体时光机 - 备份 / 定时 / 恢复</title>
+  <title>智能体时光机</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
-  <div id="login-page" class="login-page">
-    <div class="login-card">
-      <div class="logo-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.8L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></svg></div>
-      <h1>智能体时光机</h1>
-      <p id="login-hint">正在检测认证状态...</p>
-      <div class="password-row"><input id="login-password" type="password" placeholder="管理员密码（至少 8 位）" autocomplete="current-password"><button type="button" onclick="App.togglePwd('login-password')" title="显示/隐藏密码">👁</button></div>
-      <input id="login-password2" class="hidden" type="password" placeholder="确认管理员密码" autocomplete="new-password">
-      <button id="login-btn" class="btn primary full">进入</button>
-      <p id="login-error" class="error"></p>
+<div id="login-page" class="login-page">
+  <div class="login-card">
+    <div class="logo-mark"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.8L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></svg></div>
+    <h1>智能体时光机</h1>
+    <p id="login-hint">检测认证状态……</p>
+    <div class="password-row">
+      <input id="login-password" type="password" placeholder="管理员密码（至少8位）" autocomplete="current-password">
+      <button type="button" onclick="App.togglePwd('login-password')" class="pwd-toggle" title="显示/隐藏密码"><svg viewBox="0 0 24 24" stroke="currentColor" fill="none" width="20" height="20"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></button>
     </div>
+    <input id="login-password2" class="hidden" type="password" placeholder="确认管理员密码" autocomplete="new-password">
+    <button id="login-btn" class="btn primary full">进入</button>
+    <p id="login-error" class="error hidden"></p>
   </div>
+</div>
 
-  <div id="main-page" class="app hidden">
-    <aside class="side">
-      <div class="brand"><div class="brand-icon"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.8L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></svg></div><div><b>智能体时光机</b><span>备份 · 定时 · 恢复</span></div></div>
-      <nav class="nav" aria-label="主导航">
-        <button class="nav-item active" data-page="home">首页</button>
-        <button class="nav-item" data-page="backup">备份</button>
-        <button class="nav-item" data-page="schedule">定时</button>
-        <button class="nav-item" data-page="restore">恢复</button>
-        <button class="nav-item" data-page="agents">智能体</button>
-        <button class="nav-item" data-page="more">更多</button>
-      </nav>
-    </aside>
+<div id="main-page" class="app hidden">
+  <aside class="side">
+    <div class="brand">
+      <div class="brand-icon"><svg viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.8L3 8"/><path d="M3 3v5h5"/><path d="M12 8v4l3 2"/></svg></div>
+      <div><b>智能体时光机</b><span>备份·定时·恢复</span></div>
+    </div>
+    <nav class="nav">
+      <button class="nav-item active" data-page="home">首页</button>
+      <button class="nav-item" data-page="backup">备份</button>
+      <button class="nav-item" data-page="schedule">定时</button>
+      <button class="nav-item" data-page="restore">恢复</button>
+      <button class="nav-item" data-page="agents">智能体</button>
+      <button class="nav-item" data-page="more">更多</button>
+    </nav>
+  </aside>
 
-    <main class="main">
-      <header class="topbar">
-        <button id="mobile-menu" class="icon-btn" title="菜单">☰</button>
-        <div><h1 id="page-title">首页</h1><p id="page-subtitle">备份、定时、恢复</p></div>
-        <button id="refresh-btn" class="btn ghost">刷新</button>
-      </header>
+  <main class="main">
+    <header class="topbar">
+      <button id="mobile-menu" class="icon-btn" title="菜单">☰</button>
+      <div><h1 id="page-title">首页</h1><p id="page-subtitle" class="muted">备份、定时、恢复</p></div>
+      <button id="refresh-btn" class="btn ghost">刷新</button>
+    </header>
+    <div id="banner" class="banner hidden"></div>
 
-      <div id="banner" class="banner hidden"></div>
+    <!-- ===== 首页 ===== -->
+    <section id="home" class="page active">
+      <div class="home-overview">
+        <div><h2>智能体时光机</h2><p class="muted">备份、定时、恢复</p></div>
+        <div class="hero-status" id="home-status">加载中……</div>
+      </div>
+      <div class="task-grid compact">
+        <button class="task-card" data-go="backup"><span>1</span><h3>立即备份</h3><p id="home-backup-hint">准备就绪</p><b>开始备份→</b></button>
+        <button class="task-card" data-go="schedule"><span>2</span><h3>定时备份</h3><p id="home-schedule-hint">读取中</p><b>设置定时→</b></button>
+        <button class="task-card" data-go="restore"><span>3</span><h3>恢复数据</h3><p id="home-restore-hint">读取中</p><b>去恢复→</b></button>
+      </div>
+      <div class="grid two">
+        <div class="panel"><div class="panel-head"><h3>备份内容</h3><button class="link" data-go="backup">修改</button></div><div id="home-sources" class="source-summary">加载中……</div></div>
+        <div class="panel"><div class="panel-head"><h3>最近备份</h3><button class="link" data-go="more">查看全部</button></div><div id="home-backups" class="mini-list">加载中……</div></div>
+      </div>
+    </section>
 
-      <section id="home" class="page active">
-        <div class="home-overview">
-          <div>
-            <h2>智能体时光机</h2>
-            <p>备份、定时、恢复</p>
+    <!-- ===== 备份 ===== -->
+    <section id="backup" class="page">
+      <div class="section-title"><p class="eyebrow">手动备份</p><h2>现在备份一次</h2></div>
+      <div class="panel">
+        <div class="panel-head"><h3>备份内容</h3><div class="panel-actions"><button id="recommend-btn" class="btn soft small">一键推荐</button><button id="add-source-btn" class="btn soft small">自定义</button></div></div>
+        <div id="backup-sources" class="check-list"></div>
+        <div class="empty-hint" id="no-source-hint">点击「一键推荐」或「自定义」添加备份内容。</div>
+        <details class="wizard-details"><summary>备份向导</summary><div id="wizard-box"><button id="scan-large-btn" class="btn ghost small">扫描大文件</button><div id="wizard-result" class="wizard-result"></div></div></details>
+      </div>
+      <div class="backup-run-card" id="backup-run-card">
+        <div><h3 id="backup-run-title">准备就绪</h3><p id="backup-status" class="muted">选择内容后点击开始备份。</p></div>
+        <div class="backup-run-actions"><input id="backup-encrypt-pwd" type="password" placeholder="加密密码（可选）" class="input-sm"><button id="start-backup-btn" class="btn primary big">开始备份</button></div>
+      </div>
+      <div id="backup-result" class="backup-result hidden"></div>
+    </section>
+
+    <!-- ===== 定时 ===== -->
+    <section id="schedule" class="page">
+      <div class="section-title"><p class="eyebrow">自动备份</p><h2>定时备份</h2></div>
+      <div class="panel schedule-panel">
+        <div class="sched-visual" id="sched-editor">
+          <label class="switch-line"><span><b>定时总开关</b><small>开启后按设置时间自动备份</small></span><input id="schedule-enabled" type="checkbox"></label>
+          <div id="sched-quick" class="sched-quick">
+            <label>频率<select id="sched-freq"><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label>
+            <label id="sched-day-label" class="hidden">日<select id="sched-day"><option value="1">1</option><option value="15">15</option><option value="28">28</option></select></label>
+            <label id="sched-weekday-label">周<select id="sched-weekday"><option value="1">周一</option><option value="2">周二</option><option value="3">周三</option><option value="4">周四</option><option value="5">周五</option><option value="6">周六</option><option value="0">周日</option></select></label>
+            <label>时间<input id="sched-time" type="time" value="03:00"></label>
+            <button id="sched-preview-btn" class="btn ghost small">预览</button>
           </div>
-          <div class="hero-status" id="home-status">加载中...</div>
+          <details><summary>手写 Cron</summary><input id="sched-cron" value="0 3 * * *" placeholder="分 时 日 月 周"></details>
+          <p class="sched-preview" id="sched-preview">每天 03:00</p>
         </div>
-        <div class="task-grid compact">
-          <button class="task-card" data-go="backup"><span>1</span><h3>立即备份</h3><p id="home-backup-hint">准备就绪</p><b>开始备份 →</b></button>
-          <button class="task-card" data-go="schedule"><span>2</span><h3>定时备份</h3><p id="home-schedule-hint">读取中</p><b>设置定时 →</b></button>
-          <button class="task-card" data-go="restore"><span>3</span><h3>恢复数据</h3><p id="home-restore-hint">读取中</p><b>去恢复 →</b></button>
-        </div>
-        <div class="grid two">
-          <div class="panel"><div class="panel-head"><h3>备份内容</h3><button class="link" data-go="backup">修改</button></div><div id="home-sources" class="source-summary">加载中...</div></div>
-          <div class="panel"><div class="panel-head"><h3>最近备份</h3><button class="link" data-go="more">查看全部</button></div><div id="home-backups" class="mini-list">加载中...</div></div>
-        </div>
-      </section>
+      </div>
+      <div class="panel" id="per-source-sched-panel">
+        <div class="panel-head"><h3>每源独立定时</h3></div>
+        <div id="per-source-sched-list" class="per-source-list">加载中……</div>
+      </div>
+    </section>
 
-      <section id="backup" class="page">
-        <div class="section-title"><p class="eyebrow">手动备份</p><h2>现在备份一次</h2><p>勾选内容后开始备份，完成结果会显示在本页。</p></div>
+    <!-- ===== 恢复 ===== -->
+    <section id="restore" class="page">
+      <div class="section-title"><p class="eyebrow">恢复数据</p><h2>恢复与回收站</h2></div>
+      <div class="tab-bar">
+        <button class="sub-tab active" data-sub="restore">恢复</button>
+        <button class="sub-tab" data-sub="trash">回收站</button>
+      </div>
+      <div class="sub-pane active" data-sub="restore">
+        <div class="panel"><div class="panel-head"><h3>可用备份</h3><button id="load-restore-btn" class="btn ghost small">刷新</button></div><div id="restore-list" class="card-list">加载中……</div></div>
+      </div>
+      <div class="sub-pane hidden" data-sub="trash">
         <div class="panel">
-          <div class="panel-head"><h3>备份内容</h3><button id="recommend-btn" class="btn soft">一键选择推荐内容</button></div>
-          <div id="backup-sources" class="check-list"></div>
-          <div class="empty-hint" id="no-source-hint">还没有可用备份内容。点“一键选择推荐内容”即可开始。</div>
+          <div class="panel-head"><h3>回收站</h3><div class="panel-actions"><button id="load-trash-btn" class="btn ghost small">刷新</button><button id="cleanup-trash-btn" class="btn ghost small">清理过期</button><button id="empty-trash-btn" class="btn danger-soft small">清空</button></div></div>
+          <p class="muted" id="trash-stats"></p>
+          <div id="trash-list" class="card-list"></div>
         </div>
-        <div class="backup-run-card" id="backup-run-card">
-          <div>
-            <h3 id="backup-run-title">准备就绪</h3>
-            <p id="backup-status" class="muted">选择内容后点击开始备份。</p>
-          </div>
-          <button id="start-backup-btn" class="btn primary big">开始备份</button>
+      </div>
+    </section>
+
+    <!-- ===== 智能体 ===== -->
+    <section id="agents" class="page">
+      <div class="section-title"><p class="eyebrow">QwenPaw 智能体</p><h2>智能体管理</h2></div>
+      <div class="panel">
+        <div class="panel-head"><h3>智能体概览</h3><div class="panel-actions"><button id="agents-refresh-btn" class="btn ghost small">刷新</button><button id="agents-health-btn" class="btn ghost small">健康检查</button><button id="agents-snapshot-btn" class="btn soft small">全体快照</button></div></div>
+        <div id="agents-list" class="agents-grid">加载中……</div>
+      </div>
+    </section>
+
+    <!-- ===== 更多 ===== -->
+    <section id="more" class="page">
+      <div class="section-title"><p class="eyebrow">全部功能</p><h2>更多</h2></div>
+      <div class="tab-bar">
+        <button class="sub-tab active" data-sub="backups">备份库</button>
+        <button class="sub-tab" data-sub="storage">存储</button>
+        <button class="sub-tab" data-sub="notify">通知</button>
+        <button class="sub-tab" data-sub="config">配置</button>
+        <button class="sub-tab" data-sub="history">历史</button>
+        <button class="sub-tab" data-sub="audit">审计</button>
+        <button class="sub-tab" data-sub="logs">日志</button>
+      </div>
+
+      <div class="sub-pane active" data-sub="backups">
+        <div class="panel">
+          <div class="panel-head"><h3>备份库</h3><div class="panel-actions"><button class="btn ghost small" id="load-backups-btn">刷新</button><button class="btn soft small" id="batch-protect-btn" hidden>保护</button><button class="btn soft small" id="batch-trash-btn" hidden>归档</button><button class="btn danger-soft small" id="batch-delete-btn" hidden>删除</button></div></div>
+          <div class="search-row"><input id="backup-search" placeholder="搜索备份……"><select id="backup-status-filter"><option value="">全部</option><option value="success">成功</option><option value="error">失败</option><option value="running">进行中</option></select></div>
+          <div id="backups-list" class="card-list"></div>
         </div>
-        <div id="backup-result" class="backup-result hidden"></div>
-      </section>
+      </div>
 
-      <section id="schedule" class="page">
-        <div class="section-title"><p class="eyebrow">自动备份</p><h2>定时备份</h2><p>开关、频率、时间、备份内容，一屏完成。</p></div>
-        <div class="panel schedule-box">
-          <label class="switch-line"><span><b>定时备份</b><small>开启后按下面时间自动备份已勾选内容。</small></span><input id="schedule-enabled" type="checkbox"></label>
-          <div class="form-grid">
-            <label>频率<select id="schedule-frequency"><option value="daily">每天</option><option value="weekly">每周</option><option value="monthly">每月</option></select></label>
-            <label id="weekly-wrap">星期<select id="schedule-weekday"><option value="1">周一</option><option value="2">周二</option><option value="3">周三</option><option value="4">周四</option><option value="5">周五</option><option value="6">周六</option><option value="0">周日</option></select></label>
-            <label id="monthly-wrap">每月第几天<input id="schedule-day" type="number" min="1" max="28" value="1"></label>
-            <label>时间<input id="schedule-time" type="time" value="03:00"></label>
-            <label>保留最近几份<input id="keep-last" type="number" min="1" max="365" value="10"></label>
+      <div class="sub-pane hidden" data-sub="storage">
+        <div class="grid two">
+          <div class="panel">
+            <div class="panel-head"><h3>存储路径</h3></div>
+            <div class="form-stack">
+              <label>备份目录<input id="storage-root" placeholder="/vol3/@appdata/com.dustinky.agentbackup/backups"></label>
+              <label>目录结构<select id="storage-layout"><option value="year-month-source">年-月-源</option><option value="source-year-month">源-年-月</option><option value="flat">平铺</option></select></label>
+              <label>回收站保留天数<input id="storage-trash-days" type="number" value="7" min="1"></label>
+              <label>上传限制（GB）<input id="storage-max-upload" type="number" value="20" min="1"></label>
+              <div class="btn-row"><button id="save-storage-btn" class="btn primary small">保存</button><button id="validate-storage-btn" class="btn ghost small">校验路径</button><button id="organize-storage-btn" class="btn ghost small">分类整理</button></div>
+            </div>
           </div>
-          <div class="preview" id="schedule-preview">下次执行：保存后生效</div>
-          <h3>定时备份内容</h3>
-          <div id="schedule-sources" class="check-list"></div>
-          <div class="action-bar"><button id="save-schedule-btn" class="btn primary big">保存定时设置</button><span id="schedule-status" class="muted"></span></div>
-        </div>
-      </section>
-
-      <section id="restore" class="page">
-        <div class="section-title"><p class="eyebrow">恢复</p><h2>选择一份备份恢复</h2><p>默认先预览，再恢复。完整恢复会覆盖目标目录，请确认后执行。</p></div>
-        <div id="restore-list" class="backup-list">加载中...</div>
-      </section>
-
-      <section id="agents" class="page">
-        <div class="section-title"><p class="eyebrow">保护对象</p><h2>智能体</h2><p>这里看“有哪些智能体值得保护”，不和备份、定时、恢复抢主流程。</p></div>
-        <div class="agent-summary" id="agent-summary">加载中...</div>
-        <div id="agent-list" class="agent-grid">加载中...</div>
-      </section>
-
-      <section id="more" class="page">
-        <div class="section-title"><p class="eyebrow">更多</p><h2>备份库与设置</h2><p>低频功能集中在这里：查备份、存储、通知、导入导出和日志。</p></div>
-        <div class="more-layout">
-          <div class="more-main">
-            <div class="panel"><div class="panel-head"><h3>备份库</h3><button class="link" data-more-tab="library">刷新</button></div><div id="backup-list" class="backup-list compact-list">加载中...</div></div>
-          </div>
-          <div class="more-side">
-            <div class="panel"><h3>存储与保留</h3><div id="storage-settings">加载中...</div><button id="save-storage-btn" class="btn soft">保存存储设置</button></div>
-            <div class="panel"><h3>通知</h3><div id="notify-settings">加载中...</div><button id="save-notify-btn" class="btn soft">保存通知设置</button></div>
-            <div class="panel"><h3>配置导入导出</h3><p class="muted">用于迁移配置或排查问题。</p><div class="btn-row"><button id="export-config-btn" class="btn soft">导出配置</button><label class="btn soft file-label">导入配置<input id="import-config-input" type="file" accept="application/json"></label></div></div>
-            <div class="panel"><h3>日志</h3><pre id="logs-box" class="log-box">加载中...</pre></div>
+          <div class="panel">
+            <div class="panel-head"><h3>保留策略</h3></div>
+            <div class="form-stack">
+              <label>保留天数<input id="ret-days" type="number" value="30" min="0"></label>
+              <label>至少保留<input id="ret-keeplast" type="number" value="10" min="0"></label>
+              <label>最大容量（GB）<input id="ret-maxgb" type="number" value="100" min="1"></label>
+              <label class="switch-line"><span>GFS 分级保留</span><input id="gfs-enabled" type="checkbox"></label>
+              <div id="gfs-fields">
+                <label>日保留<input id="gfs-daily" type="number" value="7" min="0"></label>
+                <label>周保留<input id="gfs-weekly" type="number" value="4" min="0"></label>
+                <label>月保留<input id="gfs-monthly" type="number" value="12" min="0"></label>
+              </div>
+              <div class="btn-row"><button id="save-retention-btn" class="btn primary small">保存</button><button id="run-gfs-btn" class="btn ghost small">立即清理</button></div>
+            </div>
           </div>
         </div>
-      </section>
-    </main>
+        <div id="storage-info" class="panel hidden"><div class="panel-head"><h3>存储状态</h3></div><div id="storage-info-content"></div></div>
+      </div>
+
+      <div class="sub-pane hidden" data-sub="notify">
+        <div class="panel">
+          <div class="panel-head"><h3>通知设置</h3></div>
+          <div class="form-stack" id="notify-form">
+            <label class="switch-line"><span><b>启用通知</b></span><input id="notify-enabled" type="checkbox"></label>
+            <div class="notify-events">
+              <label class="check-line"><input id="notify-success" type="checkbox" checked><span>备份成功通知</span></label>
+              <label class="check-line"><input id="notify-failure" type="checkbox" checked><span>备份失败通知</span></label>
+              <label class="check-line"><input id="notify-nosource" type="checkbox" checked><span>无备份源通知</span></label>
+            </div>
+            <details class="notify-channel" open><summary>QQ 通知</summary>
+              <label class="switch-line"><span>启用</span><input id="notify-qq-enabled" type="checkbox"></label>
+              <label>Webhook URL<input id="notify-qq-url" placeholder="https://qmsg.zteee.org/send/xxxx"></label>
+            </details>
+            <details class="notify-channel"><summary>飞牛通知</summary>
+              <label class="switch-line"><span>启用</span><input id="notify-feiniu-enabled" type="checkbox"></label>
+              <label>Webhook URL<input id="notify-feiniu-url" placeholder="https://push.feiniu.com/xxxx"></label>
+            </details>
+            <details class="notify-channel"><summary>邮件通知</summary>
+              <label class="switch-line"><span>启用</span><input id="notify-email-enabled" type="checkbox"></label>
+              <label>SMTP 服务器<input id="notify-email-host" placeholder="smtp.qq.com"></label>
+              <div class="form-row"><label>端口<input id="notify-email-port" type="number" value="465"></label><label class="check-line"><input id="notify-email-secure" type="checkbox" checked><span>SSL</span></label></div>
+              <label>用户名<input id="notify-email-user" placeholder="your@qq.com"></label>
+              <label>密码<input id="notify-email-pass" type="password" placeholder="SMTP 授权码"></label>
+              <label>收件人<input id="notify-email-to" placeholder="receiver@example.com"></label>
+            </details>
+            <div class="btn-row"><button id="save-notify-btn" class="btn primary small">保存</button><button id="test-notify-btn" class="btn ghost small">发送测试</button></div>
+            <div id="notify-test-result"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sub-pane hidden" data-sub="config">
+        <div class="grid two">
+          <div class="panel">
+            <div class="panel-head"><h3>配置导入导出</h3></div>
+            <div class="btn-row"><button id="export-config-btn" class="btn primary small">导出配置</button><label class="btn ghost small" tabindex="0">导入配置<input id="import-file" type="file" accept=".json" hidden></label></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>安全</h3></div>
+            <div class="form-stack">
+              <label>旧密码<input id="old-password" type="password"></label>
+              <label>新密码<input id="new-password" type="password" minlength="8"></label>
+              <label>确认密码<input id="confirm-password" type="password"></label>
+              <button id="change-password-btn" class="btn primary small">修改密码</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sub-pane hidden" data-sub="history">
+        <div class="panel"><div class="panel-head"><h3>操作历史</h3><button id="load-history-btn" class="btn ghost small">刷新</button></div><div id="history-list" class="card-list">加载中……</div></div>
+      </div>
+
+      <div class="sub-pane hidden" data-sub="audit">
+        <div class="panel"><div class="panel-head"><h3>审计日志</h3><button id="load-audit-btn" class="btn ghost small">刷新</button></div><div id="audit-list" class="card-list">加载中……</div></div>
+      </div>
+
+      <div class="sub-pane hidden" data-sub="logs">
+        <div class="panel"><div class="panel-head"><h3>系统日志</h3><button id="load-logs-btn" class="btn ghost small">刷新</button></div><div id="logs-content" class="logs-box"><p class="muted">点击刷新加载。</p></div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal-overlay hidden">
+  <div class="modal-box">
+    <div class="modal-header"><h3 id="modal-title">标题</h3><button id="modal-close" class="icon-btn" title="关闭"><svg viewBox="0 0 24 24" stroke="currentColor" fill="none" width="18" height="18"><path d="M18 6L6 18M6 6l12 12"/></svg></button></div>
+    <div class="modal-body" id="modal-content"></div>
+    <div class="modal-footer" id="modal-footer"></div>
   </div>
+</div>
 
-  <div id="toast" class="toast hidden"></div>
-  <div id="modal" class="modal hidden"><div class="modal-card"><button id="modal-close" class="modal-close">×</button><div id="modal-content"></div></div></div>
-  <script src="/lib/api.js"></script>
-  <script src="/lib/app.js"></script>
+<div id="toast" class="toast hidden"></div>
+
+<script src="/lib/api.js"></script>
+<script src="/lib/app.js"></script>
 </body>
 </html>

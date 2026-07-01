@@ -1,6 +1,6 @@
 {
   "name": "agent-backup",
-  "version": "2.21.1",
+  "version": "2.21.2",
   "description": "智能体时光机 - QwenPaw 智能体记忆备份与安全恢复应用",
   "main": "server.js",
   "scripts": {
