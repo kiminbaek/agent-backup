@@ -83,13 +83,15 @@ function start() {
 function getStatus() {
     const config = loadConfig();
     const perSource = [];
+    const cronState = loadCronState();
+    const allRuns = cronState.runs || {};
     for (const s of (config.sources || [])) {
         if (s.scheduleEnabled && s.schedule) {
-            { const r=(loadCronState().runs||{})['源 '+s.id]||(loadCronState().runs||{})[s.id]||{}; perSource.push({ id: s.id, name: s.name, schedule: s.schedule, scheduleText: cronHuman(s.schedule), nextRun: nextRunApprox(s.schedule), running: sourceTasks.has(s.id), lastRun:r.lastRun||0, lastStatus:r.lastStatus||'', lastError:r.lastError||'' }); }
+            { const r=allRuns['源 '+s.id]||allRuns[s.id]||{}; perSource.push({ id: s.id, name: s.name, schedule: s.schedule, scheduleText: cronHuman(s.schedule), nextRun: nextRunApprox(s.schedule), running: sourceTasks.has(s.id), lastRun:r.lastRun||0, lastStatus:r.lastStatus||'', lastError:r.lastError||'' }); }
         }
     }
     const sch = (config.schedule && typeof config.schedule === 'object') ? config.schedule : { enabled: true, cron: config.schedule || '0 3 * * *' };
-    const state=loadCronState(); const gr=(state.runs||{})['全局']||{};
+    const gr=allRuns['全局']||{};
     return {
         global: { running: globalTask !== null, enabled: sch.enabled !== false, schedule: sch.cron || '0 3 * * *', scheduleText: cronHuman(sch.cron || '0 3 * * *'), nextRun: nextRunApprox(sch.cron || '0 3 * * *'), lastRun: gr.lastRun||0, lastStatus: gr.lastStatus||'', lastError: gr.lastError||'' },
         perSource,

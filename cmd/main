@@ -129,7 +129,7 @@ console.log('auth.json initialized: needsPasswordSetup=true, token=' + auth.toke
     {
       "id": "src-001",
       "name": "默认备份源（示例）",
-      "path": "/vol3/1000/nas",
+      "path": "/vol3/1000",
       "enabled": false,
       "include": ["*.md", "*.json", "*.txt"],
       "exclude": ["node_modules", ".git", "*.log", "*.tmp"]
@@ -187,7 +187,7 @@ install_deps() {
                 return 1
             fi
         else
-            log "ERROR" "node_modules 缺失且无 npm 可用，**请**联**系**开**发**者**"
+            log "ERROR" "node_modules 缺失且无 npm 可用，请联系开发者"
             return 1
         fi
     fi
@@ -221,7 +221,7 @@ start() {
 
     # 第 3 步：装依赖（M186 新增，v1.0.4 修复启动失败）
     if ! install_deps; then
-        log "ERROR" "依**赖**装**不**上**，**启**动**失**败**"
+        log "ERROR" "依赖装不上，启动失败"
         sync_appcenter_status "stopped"
         return 1
     fi

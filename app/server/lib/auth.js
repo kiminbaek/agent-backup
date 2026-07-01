@@ -47,6 +47,7 @@ async function setupPassword(newPassword) {
     auth.needsPasswordSetup = false;
     auth.failedAttempts = 0;
     auth.lockUntil = 0;
+    if (!auth.token) auth.token = crypto.randomBytes(32).toString('hex');
     auth.scryptOptsVersion = 4;
     save(auth);
     return auth.token;
@@ -89,8 +90,7 @@ async function verifyPassword(password) {
 
     // 检查是否锁定（v1.0.20 改：锁定时统一返 "密码错误"，不暴露剩余时间，防计时攻击）
     if (auth.lockUntil > now) {
-        save({ ...auth }); // 维持锁定状态（不累加失败次数）
-        return false;
+        return false; // 锁定期不写文件
     }
 
     // 验证密码
@@ -118,7 +118,10 @@ async function verifyPassword(password) {
 
 function verifyToken(token) {
     const auth = load();
-    return token === auth.token;
+    if (!auth.token || typeof token !== 'string') return false;
+    const a = Buffer.from(token);
+    const b = Buffer.from(auth.token);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
 // v1.0.17 新增：返回当前 token（routes/auth.js login 用，避免直接 readFile）

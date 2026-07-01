@@ -1,7 +1,6 @@
 // server.js：智能体时光机 Express 入口
 const express = require('express');
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 const logger = require('./lib/logger');
 const cron = require('./lib/cron-engine');
@@ -9,11 +8,19 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.18.0'; // 图标更新 + 备份计划入口优化
+const VERSION = '2.19.0'; // 全面审查修复
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
+app.set('trust proxy', 'loopback');
 app.use(express.json({ limit: '1mb' }));
+// 安全响应头
+app.use((req, res, next) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    next();
+});
 app.use(express.static(UI_DIR, { index: 'index.html' }));
 
 // v1.0.20 改：IP 维度 rate limit（防 /api/auth/login 暴力破解）
@@ -52,21 +59,9 @@ app.get('/api/health', (req, res) => {
     res.json({ ok: true, service: 'agent-backup', port: PORT });
 });
 
-// v1.0.17 新增：应用信息（版本 + IP + hostname）
-app.get('/api/info', (req, res) => {
-    // 获取本机第一个非回环 IPv4 地址
-    const ifaces = os.networkInterfaces();
-    let ip = '127.0.0.1';
-    const all = Object.values(ifaces).flat();
-    const found = all.find(i => i && i.family === 'IPv4' && !i.internal);
-    if (found) ip = found.address;
-    res.json({
-        version: VERSION,
-        ip: ip,
-        hostname: os.hostname(),
-        port: PORT,
-        url: `http://${ip}:${PORT}`,
-    });
+// 应用信息（仅返回版本号，不泄露 IP/hostname）
+app.get('/api/info', auth.requireToken, (req, res) => {
+    res.json({ version: VERSION });
 });
 
 function readTailLines(file, lines) {
@@ -102,7 +97,7 @@ app.get('/api/logs', auth.requireToken, (req, res) => {
         const result = readTailLines(logFileByType(type), lines);
         res.json({ ok: true, type, ...result });
     } catch (e) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: '服务器内部错误' });
     }
 });
 
@@ -127,7 +122,7 @@ app.use('/api/qwenpaw', require('./routes/qwenpaw'));
 // 全局错误处理
 app.use((err, req, res, next) => {
     logger.error(`express 异常: ${err.message}`);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: '服务器内部错误' });
 });
 
 // 启动

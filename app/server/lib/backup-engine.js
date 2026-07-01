@@ -64,7 +64,7 @@ function sha256File(filePath) {
 async function encryptArchive(filePath, password) {
     if (!password) return { archive: filePath, encrypted: false };
     const encPath = filePath + '.enc';
-    await run('openssl', ['enc', '-aes-256-cbc', '-pbkdf2', '-salt', '-in', filePath, '-out', encPath, '-pass', 'pass:' + password]);
+    await run('openssl', ['enc', '-aes-256-cbc', '-pbkdf2', '-salt', '-in', filePath, '-out', encPath, '-pass', 'stdin'], { input: password });
     try { fs.rmSync(filePath, { force: true }); } catch (_) { /* ignore */ }
     return { archive: encPath, encrypted: true, encryption: 'openssl-aes-256-cbc-pbkdf2' };
 }
@@ -73,7 +73,7 @@ async function decryptArchiveToTmp(item, password) {
     if (!item.encrypted) return { archive: item.archive, cleanup: () => {} };
     if (!password) throw new Error('该备份已加密，需要提供密码');
     const out = path.join(storage.TMP_DIR, `decrypt_${item.id}_${process.pid}_${Date.now()}.tar.zst`);
-    await run('openssl', ['enc', '-d', '-aes-256-cbc', '-pbkdf2', '-in', item.archive, '-out', out, '-pass', 'pass:' + password]);
+    await run('openssl', ['enc', '-d', '-aes-256-cbc', '-pbkdf2', '-in', item.archive, '-out', out, '-pass', 'stdin'], { input: password });
     return { archive: out, cleanup: () => { try { fs.rmSync(out, { force: true }); } catch (_) { /* ignore */ } } };
 }
 
@@ -84,6 +84,7 @@ function run(cmd, args, opts) {
         child.stdout.on('data', d => stdout += d.toString());
         child.stderr.on('data', d => stderr += d.toString());
         child.on('error', reject);
+        if (opts && opts.input) { child.stdin.write(opts.input); child.stdin.end(); }
         child.on('close', code => {
             if (code === 0) resolve({ stdout, stderr });
             else reject(new Error(`${cmd} 退出码=${code}: ${stderr.slice(-500)}`));
