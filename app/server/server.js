@@ -8,7 +8,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.21.3'; // 小白优化版：健康检查/审计中文化 + 快照进度条 + 智能体文件数修复 + 多任务定时入口 + 密钥备份推荐 + 通知排版修复
+const VERSION = '2.21.4'; // 智能推荐恢复动态分析：调 qwenpawAnalyze 生成完整推荐清单（十余项，含风险分级），替换固定4项
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

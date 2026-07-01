@@ -245,6 +245,18 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;background
 .progress-fill.done{background:var(--ok)}
 .progress-text{margin:12px 0 0;text-align:center;color:var(--muted);font-size:13px}
 
+/* ---------- 智能推荐清单 ---------- */
+.rec-list{display:flex;flex-direction:column;gap:2px;max-height:52vh;overflow-y:auto;margin-top:6px}
+.rec-item{display:flex;align-items:flex-start;gap:10px;padding:11px 8px;border-bottom:1px solid var(--line);cursor:pointer}
+.rec-item:last-child{border-bottom:0}
+.rec-item:hover{background:var(--soft)}
+.rec-item.rec-added{opacity:.55;cursor:default}
+.rec-item input{margin-top:3px}
+.rec-body{flex:1;min-width:0}
+.rec-body b{display:block;font-size:14px;font-weight:600}
+.rec-body small{color:var(--muted);font-size:12px;word-break:break-word}
+.rec-risk{font-size:12px;font-weight:600;margin-left:4px}
+
 /* ---------- 移动端 ---------- */
 @media(max-width:860px){
   .side{position:fixed;left:0;top:0;bottom:0;z-index:20;transform:translateX(-100%);transition:transform .2s;height:100vh}

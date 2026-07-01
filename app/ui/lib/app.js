@@ -147,17 +147,38 @@ function delSource(i){
   var s=state.config.sources[i];
   confirmDialog('删除备份内容','确认删除「'+s.name+('」？（不影响已生成的备份）'),{danger:true,okLabel:'删除'}).then(function(ok){if(!ok)return;state.config.sources.splice(i,1);Api.saveConfig(state.config).then(function(){toast('已删除','ok');renderSources();renderHome();}).catch(function(e){toast(e.message,'error');});});
 }
-function applyRecommended(){
+function riskLabel(r){return r==='critical'?'高危':r==='high'?'重要':r==='low'?'常规':'一般';}
+function riskColor(r){return r==='critical'?'var(--danger)':r==='high'?'var(--warn)':r==='low'?'var(--ok)':'var(--blue)';}
+async function applyRecommended(){
+  var loading=modal('智能推荐备份内容','<p class="muted">正在分析你的 QwenPaw 数据，生成推荐清单……</p>',[{label:'取消',cls:'ghost'}]);
+  var groups=[];
+  try{var r=await Api.qwenpawAnalyze();groups=r.groups||[];}
+  catch(e){modal('智能推荐','<p class="modal-err">分析失败：'+esc(e.message)+'</p>',[{label:'关闭',cls:'ghost'}]);return;}
+  if(!groups.length){modal('智能推荐','<p class="muted">未分析出可推荐的内容。</p>',[{label:'关闭',cls:'ghost'}]);return;}
   state.config.sources=state.config.sources||[];
-  var existing={};state.config.sources.forEach(function(s){existing[s.id]=true;if(s.path)existing[s.path+'|'+s.name]=true;});
-  var added=REC_SOURCES.filter(function(r){return !existing[r.id];});
-  if(!added.length){toast('推荐内容已全部添加','info');return;}
-  var names=added.map(function(r){return r.name;}).join('、');
-  confirmDialog('应用推荐配置','将添加以下 '+added.length+' 项推荐备份内容：<br><b>'+esc(names)+'</b><br><br>其中「密钥与敏感配置」默认不启用，启用后备份时需设置加密密码。是否继续？',{okLabel:'添加',html:true}).then(function(ok){
-    if(!ok)return;
-    added.forEach(function(r){state.config.sources.push(clone(r));});
-    Api.saveConfig(state.config).then(function(){toast('已添加 '+added.length+' 项推荐内容','ok');renderSources();renderHome();}).catch(function(e){toast(e.message,'error');});
-  });
+  var existing={};state.config.sources.forEach(function(s){existing[s.id]=true;});
+  var html='<p class="modal-msg">已为你分析出 '+groups.length+' 项可备份内容，勾选需要的（已存在的会自动跳过）：</p><div class="rec-list">';
+  html+=groups.map(function(g,i){
+    var added=existing[g.id];
+    var checked=(!added&&g.defaultSelected)?' checked':'';
+    var dis=added?' disabled':'';
+    var size=g.stats&&g.stats.size?g.stats.size:'';
+    var enc=g.risk==='critical'?'<span class="lock-badge">需加密</span>':'';
+    return'<label class="rec-item'+(added?' rec-added':'')+'"><input type="checkbox" class="rec-cb" data-i="'+i+'"'+checked+dis+'><span class="rec-body"><b>'+esc(g.name)+' <span class="rec-risk" style="color:'+riskColor(g.risk)+'">'+riskLabel(g.risk)+'</span>'+enc+(added?' <span class="muted">（已添加）</span>':'')+'</b><small>'+esc(g.desc||'')+(size?' · 约 '+size:'')+'</small></span></label>';
+  }).join('')+'</div>';
+  modal('智能推荐备份内容',html,[
+    {label:'取消',cls:'ghost'},
+    {label:'添加所选',cls:'primary',keep:true,onClick:function(){
+      var picks=$$('#modal .rec-cb').filter(function(cb){return cb.checked&&!cb.disabled;}).map(function(cb){return groups[+cb.dataset.i];});
+      if(!picks.length){toast('请至少勾选一项','error');return false;}
+      picks.forEach(function(g){
+        var src={id:g.id,name:g.name,path:g.path,enabled:true,include:g.include||[],exclude:g.exclude||[]};
+        if(g.risk==='critical')src.requiresEncryption=true;
+        state.config.sources.push(src);
+      });
+      return Api.saveConfig(state.config).then(function(){toast('已添加 '+picks.length+' 项备份内容','ok');closeModal();renderSources();renderHome();}).catch(function(e){toast(e.message,'error');return false;});
+    }}
+  ]);
 }
 async function scanLargeFiles(){
   const rb=$('#wizard-result');rb.innerHTML='<p class="muted">扫描中……</p>';
