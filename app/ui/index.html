@@ -30,48 +30,58 @@
         <button class="nav-item" data-page="backup">备份</button>
         <button class="nav-item" data-page="schedule">定时</button>
         <button class="nav-item" data-page="restore">恢复</button>
-        <button class="nav-item" data-page="library">备份库</button>
-        <button class="nav-item" data-page="settings">设置</button>
+        <button class="nav-item" data-page="agents">智能体</button>
+        <button class="nav-item" data-page="more">更多</button>
       </nav>
     </aside>
 
     <main class="main">
       <header class="topbar">
         <button id="mobile-menu" class="icon-btn" title="菜单">☰</button>
-        <div><h1 id="page-title">首页</h1><p id="page-subtitle">现在只做三件事：备份、定时、恢复。</p></div>
+        <div><h1 id="page-title">首页</h1><p id="page-subtitle">备份、定时、恢复</p></div>
         <button id="refresh-btn" class="btn ghost">刷新</button>
       </header>
 
       <div id="banner" class="banner hidden"></div>
 
       <section id="home" class="page active">
-        <div class="hero">
-          <div><p class="eyebrow">核心入口</p><h2>备份、定时、恢复，别再到处找。</h2><p>打开应用只需要先回答三个问题：现在备份吗？要不要自动备份？要恢复哪一份？</p></div>
+        <div class="home-overview">
+          <div>
+            <h2>智能体时光机</h2>
+            <p>备份、定时、恢复</p>
+          </div>
           <div class="hero-status" id="home-status">加载中...</div>
         </div>
-        <div class="task-grid">
-          <button class="task-card" data-go="backup"><span>1</span><h3>立即备份</h3><p>选择要保护的内容，马上创建一个备份。</p><b>开始备份 →</b></button>
-          <button class="task-card" data-go="schedule"><span>2</span><h3>定时备份</h3><p>每天/每周自动备份，不靠记忆。</p><b>设置定时 →</b></button>
-          <button class="task-card" data-go="restore"><span>3</span><h3>恢复数据</h3><p>从历史备份恢复 MEMORY、技能或完整数据。</p><b>去恢复 →</b></button>
+        <div class="task-grid compact">
+          <button class="task-card" data-go="backup"><span>1</span><h3>立即备份</h3><p id="home-backup-hint">准备就绪</p><b>开始备份 →</b></button>
+          <button class="task-card" data-go="schedule"><span>2</span><h3>定时备份</h3><p id="home-schedule-hint">读取中</p><b>设置定时 →</b></button>
+          <button class="task-card" data-go="restore"><span>3</span><h3>恢复数据</h3><p id="home-restore-hint">读取中</p><b>去恢复 →</b></button>
         </div>
         <div class="grid two">
           <div class="panel"><div class="panel-head"><h3>备份内容</h3><button class="link" data-go="backup">修改</button></div><div id="home-sources" class="source-summary">加载中...</div></div>
-          <div class="panel"><div class="panel-head"><h3>最近备份</h3><button class="link" data-go="library">查看全部</button></div><div id="home-backups" class="mini-list">加载中...</div></div>
+          <div class="panel"><div class="panel-head"><h3>最近备份</h3><button class="link" data-go="more">查看全部</button></div><div id="home-backups" class="mini-list">加载中...</div></div>
         </div>
       </section>
 
       <section id="backup" class="page">
-        <div class="section-title"><p class="eyebrow">手动备份</p><h2>现在备份一次</h2><p>勾选要备份的内容，然后点“开始备份”。</p></div>
+        <div class="section-title"><p class="eyebrow">手动备份</p><h2>现在备份一次</h2><p>勾选内容后开始备份，完成结果会显示在本页。</p></div>
         <div class="panel">
           <div class="panel-head"><h3>备份内容</h3><button id="recommend-btn" class="btn soft">一键选择推荐内容</button></div>
           <div id="backup-sources" class="check-list"></div>
           <div class="empty-hint" id="no-source-hint">还没有可用备份内容。点“一键选择推荐内容”即可开始。</div>
         </div>
-        <div class="action-bar"><button id="start-backup-btn" class="btn primary big">开始备份</button><span id="backup-status" class="muted">准备就绪</span></div>
+        <div class="backup-run-card" id="backup-run-card">
+          <div>
+            <h3 id="backup-run-title">准备就绪</h3>
+            <p id="backup-status" class="muted">选择内容后点击开始备份。</p>
+          </div>
+          <button id="start-backup-btn" class="btn primary big">开始备份</button>
+        </div>
+        <div id="backup-result" class="backup-result hidden"></div>
       </section>
 
       <section id="schedule" class="page">
-        <div class="section-title"><p class="eyebrow">自动备份</p><h2>定时备份</h2><p>定时入口就在这里：开关、频率、时间、备份内容，一屏完成。</p></div>
+        <div class="section-title"><p class="eyebrow">自动备份</p><h2>定时备份</h2><p>开关、频率、时间、备份内容，一屏完成。</p></div>
         <div class="panel schedule-box">
           <label class="switch-line"><span><b>定时备份</b><small>开启后按下面时间自动备份已勾选内容。</small></span><input id="schedule-enabled" type="checkbox"></label>
           <div class="form-grid">
@@ -93,18 +103,24 @@
         <div id="restore-list" class="backup-list">加载中...</div>
       </section>
 
-      <section id="library" class="page">
-        <div class="section-title"><p class="eyebrow">备份库</p><h2>所有备份</h2><p>查看、下载、删除或恢复历史备份。</p></div>
-        <div id="backup-list" class="backup-list">加载中...</div>
+      <section id="agents" class="page">
+        <div class="section-title"><p class="eyebrow">保护对象</p><h2>智能体</h2><p>这里看“有哪些智能体值得保护”，不和备份、定时、恢复抢主流程。</p></div>
+        <div class="agent-summary" id="agent-summary">加载中...</div>
+        <div id="agent-list" class="agent-grid">加载中...</div>
       </section>
 
-      <section id="settings" class="page">
-        <div class="section-title"><p class="eyebrow">设置</p><h2>低频设置</h2><p>这里放存储、通知、密码和日志，不再干扰备份主流程。</p></div>
-        <div class="grid two">
-          <div class="panel"><h3>存储与保留</h3><div id="storage-settings">加载中...</div><button id="save-storage-btn" class="btn soft">保存存储设置</button></div>
-          <div class="panel"><h3>通知</h3><div id="notify-settings">加载中...</div><button id="save-notify-btn" class="btn soft">保存通知设置</button></div>
-          <div class="panel"><h3>配置导入导出</h3><p class="muted">用于迁移配置或排查问题。</p><div class="btn-row"><button id="export-config-btn" class="btn soft">导出配置</button><label class="btn soft file-label">导入配置<input id="import-config-input" type="file" accept="application/json"></label></div></div>
-          <div class="panel"><h3>日志</h3><pre id="logs-box" class="log-box">加载中...</pre></div>
+      <section id="more" class="page">
+        <div class="section-title"><p class="eyebrow">更多</p><h2>备份库与设置</h2><p>低频功能集中在这里：查备份、存储、通知、导入导出和日志。</p></div>
+        <div class="more-layout">
+          <div class="more-main">
+            <div class="panel"><div class="panel-head"><h3>备份库</h3><button class="link" data-more-tab="library">刷新</button></div><div id="backup-list" class="backup-list compact-list">加载中...</div></div>
+          </div>
+          <div class="more-side">
+            <div class="panel"><h3>存储与保留</h3><div id="storage-settings">加载中...</div><button id="save-storage-btn" class="btn soft">保存存储设置</button></div>
+            <div class="panel"><h3>通知</h3><div id="notify-settings">加载中...</div><button id="save-notify-btn" class="btn soft">保存通知设置</button></div>
+            <div class="panel"><h3>配置导入导出</h3><p class="muted">用于迁移配置或排查问题。</p><div class="btn-row"><button id="export-config-btn" class="btn soft">导出配置</button><label class="btn soft file-label">导入配置<input id="import-config-input" type="file" accept="application/json"></label></div></div>
+            <div class="panel"><h3>日志</h3><pre id="logs-box" class="log-box">加载中...</pre></div>
+          </div>
         </div>
       </section>
     </main>
