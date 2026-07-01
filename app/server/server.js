@@ -8,7 +8,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.21.2'; // 全功能恢复版：19项功能回归 + 白名单去硬编码 + 统一弹窗 + 登录初始化修复
+const VERSION = '2.21.3'; // 小白优化版：健康检查/审计中文化 + 快照进度条 + 智能体文件数修复 + 多任务定时入口 + 密钥备份推荐 + 通知排版修复
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

@@ -10,7 +10,8 @@ const state={
 const REC_SOURCES=[
   {id:'qwenpaw-memory',name:'长期记忆 MEMORY.md',path:'/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces',enabled:true,include:['MEMORY.md','memory/*.md','*/MEMORY.md','*/memory/*.md'],exclude:['node_modules','.git','*.log','*.tmp']},
   {id:'qwenpaw-skills',name:'技能 skills/',path:'/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces',enabled:true,include:['skills/**'],exclude:['node_modules','.git','*.log','*.tmp']},
-  {id:'qwenpaw-config',name:'智能体配置',path:'/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces',enabled:true,include:['agent.json','PROFILE.md','SOUL.md','AGENTS.md','*/agent.json','*/PROFILE.md','*/SOUL.md','*/AGENTS.md'],exclude:['node_modules','.git','*.log','*.tmp']}
+  {id:'qwenpaw-config',name:'智能体配置',path:'/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces',enabled:true,include:['agent.json','PROFILE.md','SOUL.md','AGENTS.md','*/agent.json','*/PROFILE.md','*/SOUL.md','*/AGENTS.md'],exclude:['node_modules','.git','*.log','*.tmp']},
+  {id:'qwenpaw-secrets',name:'密钥与敏感配置（加密）',path:'/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw',enabled:false,requiresEncryption:true,include:['*/agent.json','**/auth.json','**/.env','**/credentials*','**/*.key','**/*.pem'],exclude:['node_modules','.git','*.log','*.tmp']}
 ];
 function esc(v){return String(v==null?'':v).replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function fmtSize(n){n=Number(n||0);if(!n)return'0 B';const u=['B','KB','MB','GB','TB'];let i=0;while(n>=1024&&i<u.length-1){n/=1024;i++}return(n>=10||i===0?Math.round(n):n.toFixed(1))+' '+u[i]}
@@ -39,7 +40,7 @@ function modal(title,bodyHtml,buttons){
 function closeModal(){$('#modal').classList.add('hidden');$('#modal-content').innerHTML=''}
 function confirmDialog(title,msg,opt){
   opt=opt||{};return new Promise(res=>{
-    modal(title,'<p class="modal-msg">'+esc(msg)+'</p>',[
+    modal(title,'<p class="modal-msg">'+(opt.html?msg:esc(msg))+'</p>',[
       {label:opt.cancelLabel||'取消',cls:'ghost',onClick:()=>res(false)},
       {label:opt.okLabel||'确认',cls:opt.danger?'danger-soft':'primary',onClick:()=>res(true)}
     ]);
@@ -122,19 +123,19 @@ function renderSources(){
   const box=$('#backup-sources');if(!box)return;
   var list=allSources();
   var hint=$('#no-source-hint');if(hint)hint.classList.toggle('hidden',list.length>0);
-  box.innerHTML=list.map(function(s,i){return'<div class="check-item"><label class="check-line"><input type="checkbox" class="src-cb" data-i="'+i+'"'+(s.enabled?' checked':'')+'><span class="src-info"><b>'+esc(s.name||s.id)+'</b><small>'+esc(s.path||'')+'</small></span></label><span class="src-ops"><button class="link" data-edit="'+i+'">编辑</button><button class="link danger" data-del="'+i+'">删除</button></span></div>';}).join('');
+  box.innerHTML=list.map(function(s,i){return'<div class="check-item"><label class="check-line"><input type="checkbox" class="src-cb" data-i="'+i+'"'+(s.enabled?' checked':'')+'><span class="src-info"><b>'+esc(s.name||s.id)+(s.requiresEncryption?' <span class="lock-badge">加密</span>':'')+'</b><small>'+esc(s.path||'')+'</small></span></label><span class="src-ops"><button class="link" data-edit="'+i+'">编辑</button><button class="link danger" data-del="'+i+'">删除</button></span></div>';}).join('');
   $$('.src-cb',box).forEach(function(cb){cb.onchange=function(){var i=+cb.dataset.i;state.config.sources[i].enabled=cb.checked;Api.saveConfig(state.config).catch(ignore);renderHome();};});
   $$('[data-edit]',box).forEach(function(b){b.onclick=function(){editSource(+b.dataset.edit);};});
   $$('[data-del]',box).forEach(function(b){b.onclick=function(){delSource(+b.dataset.del);};});
 }
 function editSource(i){
   var s=i==null?{name:'',path:'',enabled:true,include:['*'],exclude:['node_modules','.git','*.log','*.tmp']}:clone(state.config.sources[i]);
-  modal(i==null?'添加备份内容':'编辑备份内容','<label class="modal-field">名称<input id="s-name" value="'+esc(s.name||'')+'" placeholder="例如：我的文档"></label><label class="modal-field">路径<input id="s-path" value="'+esc(s.path||'')+'" placeholder="/vol3/1000/nas/..."></label><label class="modal-field">包含规则（每行一条）<textarea id="s-include" rows="3">'+esc((s.include||['*']).join('\n'))+'</textarea></label><label class="modal-field">排除规则（每行一条）<textarea id="s-exclude" rows="3">'+esc((s.exclude||[]).join('\n'))+'</textarea></label><label class="check-line"><input id="s-enabled" type="checkbox"'+(s.enabled!==false?' checked':'')+'><span>加入备份内容</span></label><p class="modal-err hidden" id="s-err"></p>',[
+  modal(i==null?'添加备份内容':'编辑备份内容','<label class="modal-field">名称<input id="s-name" value="'+esc(s.name||'')+'" placeholder="例如：我的文档"></label><label class="modal-field">路径<input id="s-path" value="'+esc(s.path||'')+'" placeholder="/vol3/1000/nas/..."></label><label class="modal-field">包含规则（每行一条）<textarea id="s-include" rows="3">'+esc((s.include||['*']).join('\n'))+'</textarea></label><label class="modal-field">排除规则（每行一条）<textarea id="s-exclude" rows="3">'+esc((s.exclude||[]).join('\n'))+'</textarea></label><label class="check-line"><input id="s-enabled" type="checkbox"'+(s.enabled!==false?' checked':'')+'><span>加入备份内容</span></label><label class="check-line"><input id="s-encrypt" type="checkbox"'+(s.requiresEncryption?' checked':'')+'><span>敏感内容，备份时必须设加密密码</span></label><p class="modal-err hidden" id="s-err"></p>',[
     {label:'取消',cls:'ghost'},{label:'保存',cls:'primary',keep:true,onClick:function(){
       var name=$('#s-name').value.trim(),path=$('#s-path').value.trim();
       var err=$('#s-err');
       if(!name||!path){err.textContent='名称和路径不能为空';err.classList.remove('hidden');return false;}
-      var ns={id:s.id||('src-'+Date.now()),name:name,path:path,enabled:$('#s-enabled').checked,include:$('#s-include').value.split('\n').map(function(x){return x.trim();}).filter(Boolean),exclude:$('#s-exclude').value.split('\n').map(function(x){return x.trim();}).filter(Boolean)};
+      var ns={id:s.id||('src-'+Date.now()),name:name,path:path,enabled:$('#s-enabled').checked,requiresEncryption:$('#s-encrypt').checked,include:$('#s-include').value.split('\n').map(function(x){return x.trim();}).filter(Boolean),exclude:$('#s-exclude').value.split('\n').map(function(x){return x.trim();}).filter(Boolean)};
       if(!ns.include.length)ns.include=['*'];
       state.config.sources=state.config.sources||[];
       if(i==null)state.config.sources.push(ns);else state.config.sources[i]=Object.assign({},state.config.sources[i],ns);
@@ -151,7 +152,8 @@ function applyRecommended(){
   var existing={};state.config.sources.forEach(function(s){existing[s.id]=true;if(s.path)existing[s.path+'|'+s.name]=true;});
   var added=REC_SOURCES.filter(function(r){return !existing[r.id];});
   if(!added.length){toast('推荐内容已全部添加','info');return;}
-  confirmDialog('应用推荐配置','将添加 '+added.length+' 项智能体推荐备份内容（长期记忆 / 技能 / 智能体配置），是否继续？',{okLabel:'添加'}).then(function(ok){
+  var names=added.map(function(r){return r.name;}).join('、');
+  confirmDialog('应用推荐配置','将添加以下 '+added.length+' 项推荐备份内容：<br><b>'+esc(names)+'</b><br><br>其中「密钥与敏感配置」默认不启用，启用后备份时需设置加密密码。是否继续？',{okLabel:'添加',html:true}).then(function(ok){
     if(!ok)return;
     added.forEach(function(r){state.config.sources.push(clone(r));});
     Api.saveConfig(state.config).then(function(){toast('已添加 '+added.length+' 项推荐内容','ok');renderSources();renderHome();}).catch(function(e){toast(e.message,'error');});
@@ -229,10 +231,13 @@ function renderSchedule(){
 }
 function renderPerSourceSchedule(){
   var box=$('#per-source-sched-list');if(!box)return;
-  var sources=allSources().filter(function(s){return s.scheduleEnabled;});
-  if(!sources.length&&state.config.schedule.enabled){box.innerHTML='<p class="muted">没有设置独立定时的备份源，全部跟随全局计划。</p>';return;}
-  if(!sources.length&&!state.config.schedule.enabled){box.innerHTML='<p class="muted">定时未开启，可在上方开启全局定时或为各源设置独立定时。</p>';return;}
-  box.innerHTML=sources.map(function(s){return'<div class="per-source-item"><div class="src-info"><b>'+esc(s.name)+'</b><small>'+describeCron(s.schedule)+'</small></div><button class="btn ghost small" data-edit-sched="'+esc(s.id)+'">编辑</button></div>';}).join('');
+  var sources=allSources();
+  if(!sources.length){box.innerHTML='<p class="muted">还没有备份内容。请先到「备份」页添加。</p>';return;}
+  box.innerHTML='<p class="muted per-source-tip">每个备份内容可单独设定时间；不设置则跟随上方的全局定时。</p>'+sources.map(function(s){
+    var on=!!s.scheduleEnabled;
+    var desc=on?('独立定时：'+describeCron(s.schedule)):'跟随全局定时';
+    return'<div class="per-source-item"><div class="src-info"><b>'+esc(s.name||s.id)+'</b><small>'+esc(desc)+'</small></div><button class="btn '+(on?'soft':'ghost')+' small" data-edit-sched="'+esc(s.id)+'">'+(on?'修改':'设为独立')+'</button></div>';
+  }).join('');
   $$('[data-edit-sched]',box).forEach(function(b){b.onclick=function(){editSourceSchedule(b.dataset.editSched);};});
 }
 function editSourceSchedule(id){
@@ -300,21 +305,45 @@ function renderAgents(){
   var cards=state.agents&&state.agents.cards||state.agents&&state.agents.agents||[];
   if(!cards.length){list.innerHTML='<p class="muted">未发现智能体。确保 QwenPaw 正在运行。</p>';return;}
   list.innerHTML='<div class="agents-grid">'+cards.map(function(c){
-    return'<div class="agent-card"><div class="agent-header"><b>Agent '+esc(c.agent||'')+'</b><span class="agent-badge">'+(c.filesCount||'0')+' 文件</span></div><div class="agent-info"><small>记忆：'+(c.memoryFile?esc(c.memoryFile.split('/').pop()):'-')+' · 大小：'+fmtSize(c.memorySize)+(c.lastBackup?'<br>最近备份：'+fmtTime(c.lastBackup):'')+'</small></div><div class="agent-ops"><button class="btn ghost small" data-agent-health="'+esc(c.agent)+'">健康</button><button class="btn ghost small" data-agent-diff="'+esc(c.agent)+'">Diff</button><button class="btn ghost small" data-agent-history="'+esc(c.agent)+'">历史</button><button class="btn soft small" data-agent-snap="'+esc(c.agent)+'">快照</button></div></div>';
+    var files=(c.coreFiles!=null?c.coreFiles:(c.filesCount||0));
+    var memSize=(c.coreSize!=null?c.coreSize:(c.memorySize||0));
+    var notes=(c.notes!=null?c.notes:0);
+    var memDays=(c.memDays!=null?c.memDays:0);
+    var lb=c.lastBackup;
+    var lastTxt=lb?('最近快照：'+fmtTime(lb.at||lb.timestamp||lb.human)):'尚未快照';
+    return'<div class="agent-card"><div class="agent-header"><b>Agent '+esc(c.agent||'')+'</b><span class="agent-badge">'+files+' 个核心文件</span></div><div class="agent-info"><small>记忆大小：'+fmtSize(memSize)+' · 日记 '+memDays+' 篇 · 笔记 '+notes+' 个<br>'+esc(lastTxt)+'</small></div><div class="agent-ops"><button class="btn ghost small" data-agent-health="'+esc(c.agent)+'">健康检查</button><button class="btn ghost small" data-agent-diff="'+esc(c.agent)+'">对比</button><button class="btn ghost small" data-agent-history="'+esc(c.agent)+'">历史</button><button class="btn soft small" data-agent-snap="'+esc(c.agent)+'">立即快照</button></div></div>';
   }).join('')+'</div>';
   $$('[data-agent-health]',list).forEach(function(b){b.onclick=function(){checkAgentHealth(b.dataset.agentHealth);};});
   $$('[data-agent-diff]',list).forEach(function(b){b.onclick=function(){showAgentDiff(b.dataset.agentDiff);};});
   $$('[data-agent-history]',list).forEach(function(b){b.onclick=function(){showAgentHistory(b.dataset.agentHistory);};});
   $$('[data-agent-snap]',list).forEach(function(b){b.onclick=function(){snapshotAgent(b.dataset.agentSnap);};});
 }
+function healthLevelText(level){return level==='ok'?'健康':level==='warn'?'需注意':'需处理';}
+function healthLevelColor(level){return level==='ok'?'var(--ok)':level==='warn'?'var(--warn)':'var(--danger)';}
+function renderHealthCard(c){
+  var color=healthLevelColor(c.level),txt=healthLevelText(c.level);
+  var st=c.stats||{};
+  var html='<div class="health-hero"><div class="health-score" style="border-color:'+color+';color:'+color+'"><b>'+(c.score!=null?c.score:'--')+'</b><span>分</span></div><div class="health-sum"><div class="health-badge" style="background:'+color+'">'+txt+'</div><p class="muted">共 '+(st.mdFiles!=null?st.mdFiles:'-')+' 个记忆文件 · 核心 '+(st.coreSizeHuman||'-')+' · 记忆目录 '+(st.memSizeHuman||'-')+'</p></div></div>';
+  if(!c.issues||!c.issues.length){html+='<div class="health-ok-tip">✓ 一切正常，没有发现需要处理的问题。</div>';}
+  else{
+    html+='<div class="health-issues"><h4>发现 '+c.issues.length+' 项建议</h4>';
+    html+=c.issues.map(function(it){
+      var sev=it.severity==='critical'?'需处理':'建议';
+      var sevColor=it.severity==='critical'?'var(--danger)':'var(--warn)';
+      return'<div class="issue-row"><span class="issue-dot" style="background:'+sevColor+'"></span><div class="issue-body"><b>'+esc(it.title||'')+'</b>'+(it.detail?'<small>'+esc(it.detail)+'</small>':'')+'</div><span class="issue-sev" style="color:'+sevColor+'">'+sev+'</span></div>';
+    }).join('');
+    html+='</div>';
+  }
+  return html;
+}
 async function checkAgentHealth(agent){
-  try{var r=await Api.qwenpawHealthCheck('/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces/'+agent);
-    var res=r.results||r.files||r;
-    var html;
-    if(Array.isArray(res)){html='<div class="mini-list">'+res.map(function(f){return'<div class="mini-item"><span>'+esc(f.name||f.file||f.path||'')+'</span><small>'+esc(f.ok===false||f.status==='missing'?'缺失':'正常')+'</small></div>';}).join('')+'</div>';}
-    else html='<pre>'+esc(JSON.stringify(res,null,2))+'</pre>';
-    modal('Agent '+agent+' 健康检查',html,[{label:'关闭',cls:'ghost'}]);
-  }catch(e){toast(e.message,'error');}
+  var loading=modal('Agent '+agent+' 健康检查','<p class="muted">正在扫描记忆文件……</p>',[{label:'关闭',cls:'ghost'}]);
+  try{var r=await Api.qwenpawHealthCheck();
+    var cards=r.cards||[];
+    var c=cards.find(function(x){return String(x.agent)===String(agent);});
+    if(!c){modal('Agent '+agent+' 健康检查','<p class="muted">未找到该智能体的检查结果。</p>',[{label:'关闭',cls:'ghost'}]);return;}
+    modal('Agent '+agent+' 健康检查',renderHealthCard(c),[{label:'知道了',cls:'primary'}]);
+  }catch(e){modal('健康检查','<p class="modal-err">检查失败：'+esc(e.message)+'</p>',[{label:'关闭',cls:'ghost'}]);}
 }
 function agentBackups(agent){
   return state.backups.filter(function(b){return(b.status||b.health)==='success'||(b.status||b.health)==='ok';}).filter(function(b){return String(b.sourceId||'').indexOf('agent-'+agent+'-')>=0||String(b.sourceName||'').indexOf('Agent '+agent)>=0||String(b.name||'').indexOf(agent)>=0;}).sort(function(a,b){return(b.timestamp||0)-(a.timestamp||0);});
@@ -346,15 +375,34 @@ function agentMemGroup(agent){
   var base='/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces';
   return{id:'agent-'+agent+'-mem',name:'Agent '+agent+' 记忆',path:base,enabled:true,include:[agent+'/MEMORY.md',agent+'/memory/*.md',agent+'/PROFILE.md',agent+'/SOUL.md',agent+'/AGENTS.md'],exclude:['node_modules','.git','*.log','*.tmp']};
 }
+function progressModal(title){
+  modal(title,'<div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" id="prog-fill" style="width:8%"></div></div><p class="progress-text" id="prog-text">正在准备……</p></div>',[]);
+}
+function setProgress(pct,text){var f=$('#prog-fill'),t=$('#prog-text');if(f)f.style.width=Math.min(98,pct)+'%';if(t&&text)t.textContent=text;}
+function finishProgress(text){var f=$('#prog-fill'),t=$('#prog-text');if(f){f.style.width='100%';f.classList.add('done');}if(t)t.textContent=text||'完成';}
+async function watchBackup(onDone){
+  var n=0;
+  return new Promise(function(resolve){
+    var timer=setInterval(async function(){
+      n++;var s={};try{s=await Api.backupStatus();}catch(_){}
+      var running=s.running||s.status==='running';
+      setProgress(15+n*8, running?('正在备份……（'+n*2+' 秒）'):'即将完成……');
+      if(!running||n>150){clearInterval(timer);finishProgress('快照完成');resolve(s);}
+    },2000);
+  });
+}
 async function snapshotAgent(agent){
-  if(!await confirmDialog('快照 Agent '+agent,'将立即为 Agent '+agent+' 的记忆创建一次备份。继续？',{okLabel:'开始快照'}))return;
+  if(!await confirmDialog('立即快照 Agent '+agent,'将立即为 Agent '+agent+' 的记忆创建一份备份快照。继续？',{okLabel:'开始快照'}))return;
   var g=agentMemGroup(agent);
   state.config.sources=state.config.sources||[];
   var ex=state.config.sources.find(function(s){return s.id===g.id;});
   if(ex)Object.assign(ex,g);else state.config.sources.push(g);
-  try{await Api.saveConfig(state.config);await Api.runBackup({manual:true,only:[g.id]});toast('已启动快照','ok');
-    var n=0;var timer=setInterval(async function(){n++;var s={};try{s=await Api.backupStatus();}catch(_){}if((!s.running&&s.status!=='running')||n>150){clearInterval(timer);toast('快照完成','ok');await loadAgents();}},2000);
-  }catch(e){toast(e.message,'error');}
+  progressModal('快照 Agent '+agent);
+  try{await Api.saveConfig(state.config);setProgress(12,'已启动，开始备份……');await Api.runBackup({manual:true,only:[g.id]});
+    await watchBackup();
+    setTimeout(function(){closeModal();},900);
+    await loadAgents();toast('Agent '+agent+' 快照完成','ok');
+  }catch(e){modal('快照失败','<p class="modal-err">'+esc(e.message)+'</p>',[{label:'关闭',cls:'ghost'}]);}
 }
 async function snapshotAllAgents(){
   var cards=state.agents&&(state.agents.cards||state.agents.agents)||[];
@@ -362,9 +410,12 @@ async function snapshotAllAgents(){
   if(!await confirmDialog('全体快照','将为全部 '+cards.length+' 个智能体创建记忆备份。继续？',{okLabel:'开始'}))return;
   state.config.sources=state.config.sources||[];
   cards.forEach(function(c){var g=agentMemGroup(c.agent);var ex=state.config.sources.find(function(s){return s.id===g.id;});if(ex)Object.assign(ex,g);else state.config.sources.push(g);});
-  try{await Api.saveConfig(state.config);await Api.runBackup({manual:true});toast('已启动全体快照','ok');
-    var n=0;var timer=setInterval(async function(){n++;var s={};try{s=await Api.backupStatus();}catch(_){}if((!s.running&&s.status!=='running')||n>150){clearInterval(timer);toast('全体快照完成','ok');await loadAgents();}},2000);
-  }catch(e){toast(e.message,'error');}
+  progressModal('全体快照（'+cards.length+' 个智能体）');
+  try{await Api.saveConfig(state.config);setProgress(12,'已启动，开始备份……');await Api.runBackup({manual:true});
+    await watchBackup();
+    setTimeout(function(){closeModal();},900);
+    await loadAgents();toast('全体快照完成','ok');
+  }catch(e){modal('快照失败','<p class="modal-err">'+esc(e.message)+'</p>',[{label:'关闭',cls:'ghost'}]);}
 }
 
 /* ---------- 更多页：备份库 ---------- */
@@ -480,8 +531,27 @@ async function testNotify(){
 }
 
 /* ---------- 更多页：历史 / 审计 / 日志 ---------- */
-async function loadHistory(){var box=$('#history-list');if(box)box.innerHTML='<p class="muted">加载中……</p>';try{var r=await Api.history();var items=r.history||r.items||r.list||[];if(box)box.innerHTML=items.length?items.map(function(h){return'<div class="log-row"><b>'+esc(h.action||h.type||'操作')+'</b><small>'+fmtTime(h.timestamp||h.createdAt)+' · '+esc(h.detail||h.message||h.target||'')+'</small></div>';}).join(''):'<p class="muted">暂无历史。</p>';}catch(e){if(box)box.innerHTML='<p class="modal-err">'+esc(e.message)+'</p>';}}
-async function loadAudit(){var box=$('#audit-list');if(box)box.innerHTML='<p class="muted">加载中……</p>';try{var r=await Api.audit();var items=r.audit||r.items||r.list||r.logs||[];if(box)box.innerHTML=items.length?items.map(function(a){return'<div class="log-row"><b>'+esc(a.action||a.event||'事件')+'</b><small>'+fmtTime(a.timestamp||a.createdAt)+' · '+esc(a.detail||a.message||a.ip||'')+'</small></div>';}).join(''):'<p class="muted">暂无审计记录。</p>';}catch(e){if(box)box.innerHTML='<p class="modal-err">'+esc(e.message)+'</p>';}}
+var AUDIT_LABELS={'config.save':'保存配置','backup.run':'执行备份','backup.manual':'手动备份','trash.move':'移入回收站','trash.restore':'还原备份','trash.delete':'永久删除','trash.empty':'清空回收站','trash.cleanup':'清理过期','restore.execute':'恢复备份','restore.preview':'模拟恢复','notify.save':'保存通知','notify.test':'发送测试通知','storage.save':'保存存储设置','retention.run':'执行保留清理','login':'登录','logout':'退出','password.change':'修改密码','password.setup':'设置密码','config.import':'导入配置','config.export':'导出配置','backup.protect':'设置保护','snapshot':'创建快照'};
+function auditLabel(action){return AUDIT_LABELS[action]||action||'操作';}
+function auditDetail(d){
+  if(d==null)return'';
+  if(typeof d==='string')return d;
+  if(typeof d!=='object')return String(d);
+  var parts=[];
+  if(d.sources!=null)parts.push('备份内容 '+d.sources+' 项');
+  if(d.deleted!=null)parts.push('删除 '+d.deleted+' 份');
+  if(d.skipped)parts.push('跳过 '+d.skipped+' 份');
+  if(d.freedBytes!=null)parts.push('释放 '+fmtSize(d.freedBytes));
+  if(d.count!=null)parts.push(d.count+' 份');
+  if(d.name)parts.push(esc(d.name));
+  if(d.success!=null)parts.push('成功 '+d.success);
+  if(d.failure!=null)parts.push('失败 '+d.failure);
+  if(d.channel)parts.push('渠道 '+d.channel);
+  if(!parts.length){try{var ks=Object.keys(d);if(ks.length)parts.push(ks.map(function(k){return k+'：'+d[k];}).join('，'));}catch(_){}}
+  return parts.join(' · ');
+}
+async function loadHistory(){var box=$('#history-list');if(box)box.innerHTML='<p class="muted">加载中……</p>';try{var r=await Api.history();var items=r.history||r.items||r.list||[];if(box)box.innerHTML=items.length?items.map(function(h){return'<div class="log-row"><b>'+esc(auditLabel(h.action||h.type))+'</b><small>'+fmtTime(h.timestamp||h.createdAt||h.ts||h.time)+(auditDetail(h.detail||h.message||h.target)?' · '+auditDetail(h.detail||h.message||h.target):'')+'</small></div>';}).join(''):'<p class="muted">暂无历史记录。</p>';}catch(e){if(box)box.innerHTML='<p class="modal-err">'+esc(e.message)+'</p>';}}
+async function loadAudit(){var box=$('#audit-list');if(box)box.innerHTML='<p class="muted">加载中……</p>';try{var r=await Api.audit();var items=r.audit||r.items||r.list||r.logs||[];if(box)box.innerHTML=items.length?items.map(function(a){return'<div class="log-row"><b>'+esc(auditLabel(a.action||a.event))+'</b><small>'+fmtTime(a.timestamp||a.createdAt||a.ts||a.time)+(auditDetail(a.detail)?' · '+auditDetail(a.detail):'')+'</small></div>';}).join(''):'<p class="muted">暂无操作记录。</p>';}catch(e){if(box)box.innerHTML='<p class="modal-err">'+esc(e.message)+'</p>';}}
 async function loadLogs(){var box=$('#logs-content');if(box)box.innerHTML='<p class="muted">加载中……</p>';try{var r=await Api.logs('server',200);var txt=r.content||r.log||r.text||(Array.isArray(r.lines)?r.lines.join('\n'):'');if(box)box.innerHTML=txt?'<pre>'+esc(txt)+'</pre>':'<p class="muted">暂无日志。</p>';}catch(e){if(box)box.innerHTML='<p class="modal-err">'+esc(e.message)+'</p>';}}
 
 /* ---------- 改密 ---------- */
@@ -581,9 +651,19 @@ async function saveSchedule(fromCron){
   try{await Api.saveConfig(state.config);renderHome();}catch(e){toast(e.message,'error');}
 }
 async function checkAllAgentsHealth(){
-  try{var r=await Api.qwenpawHealthCheck();var res=r.results||r.agents||r;
-    modal('全体智能体健康检查','<pre>'+esc(JSON.stringify(res,null,2))+'</pre>',[{label:'关闭',cls:'ghost'}]);
-  }catch(e){toast(e.message,'error');}
+  modal('全体健康检查','<p class="muted">正在扫描全部智能体……</p>',[{label:'关闭',cls:'ghost'}]);
+  try{var r=await Api.qwenpawHealthCheck();
+    var cards=r.cards||[];var sm=r.summary||{};
+    if(!cards.length){modal('全体健康检查','<p class="muted">未发现智能体。</p>',[{label:'关闭',cls:'ghost'}]);return;}
+    var html='<div class="health-overview"><span class="ov-item" style="color:var(--ok)">健康 '+(sm.ok||0)+'</span><span class="ov-item" style="color:var(--warn)">需注意 '+(sm.warn||0)+'</span><span class="ov-item" style="color:var(--danger)">需处理 '+(sm.critical||0)+'</span></div>';
+    html+='<div class="health-list">'+cards.sort(function(a,b){return(a.score||0)-(b.score||0);}).map(function(c){
+      var color=healthLevelColor(c.level);
+      return'<div class="health-list-row" data-hc="'+esc(c.agent)+'"><span class="hc-score" style="color:'+color+';border-color:'+color+'">'+(c.score!=null?c.score:'--')+'</span><div class="hc-info"><b>Agent '+esc(c.agent)+'</b><small>'+healthLevelText(c.level)+' · '+(c.issues?c.issues.length:0)+' 项建议</small></div><span class="hc-arrow">›</span></div>';
+    }).join('')+'</div>';
+    modal('全体健康检查',html,[{label:'知道了',cls:'primary'}]);
+    // 点某行看详情
+    setTimeout(function(){$$('#modal [data-hc]').forEach(function(el){el.onclick=function(){checkAgentHealth(el.dataset.hc);};});},50);
+  }catch(e){modal('全体健康检查','<p class="modal-err">检查失败：'+esc(e.message)+'</p>',[{label:'关闭',cls:'ghost'}]);}
 }
 
 /* ---------- 初始化 ---------- */
