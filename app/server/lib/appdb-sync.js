@@ -7,13 +7,12 @@ const DB_USER = 'postgres';
 const APP_NAME = 'com.dustinky.agentbackup';
 
 function syncStatus(targetStatus) {
-    // fnOS appcenter 状态机（2026-07-01 实机复验）：
-    // running + is_stop=false + is_uninstall=false => UI 显示“打开”且网关入口正常
-    // running + is_stop=true 或 is_uninstall=true => 服务可监听但入口会拒绝/禁用
-    // stopped + is_stop=true => 停止状态
+    // fnOS appcenter 状态机：is_stop/is_uninstall 表示“允许停止/允许卸载”，不是当前状态。
+    // running => status=running, is_stop=true, is_uninstall=true
+    // stopped => status=stopped, is_stop=true, is_uninstall=true
     const status = (targetStatus === 'running') ? 'running' : ((targetStatus === 'stop' || targetStatus === 'stopped') ? 'stopped' : 'start');
-    const isStop = (targetStatus === 'running') ? 'false' : 'true';
-    const isUninstall = 'false';
+    const isStop = 'true';
+    const isUninstall = 'true';
     const isNonManualStop = 'false';
 
     // 值用单引号包裹并转义（APP_NAME/DB_NAME/DB_USER 都是常量，但写死也加防护）
