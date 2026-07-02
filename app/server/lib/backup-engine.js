@@ -169,7 +169,9 @@ async function precheck(sources, config) {
 }
 
 async function backupOne(source, config, options) {
-    if (source.requiresEncryption && !(options && options.encryptionPassword)) throw new Error(`源 ${source.name || source.id} 包含敏感配置，必须使用加密密码备份`);
+    // v2.23.0：加密密码优先取源自带的（定时/手动都能自动用），其次取本次传入的
+    const encPassword = (source && source.encryptionPassword) || (options && options.encryptionPassword) || '';
+    if (source.requiresEncryption && !encPassword) throw new Error(`源 ${source.name || source.id} 包含敏感配置，必须使用加密密码备份`);
     const v = validators.validateSource(source);
     if (!v.valid) throw new Error(`源校验失败: ${v.errors.join(', ')}`);
 
@@ -232,9 +234,9 @@ async function backupOne(source, config, options) {
     let finalArchive = archive;
     let encrypted = false;
     let encryption = '';
-    if (options && options.encryptionPassword) {
+    if (encPassword) {
         setStatus('encrypt', 85);
-        const enc = await encryptArchive(archive, String(options.encryptionPassword));
+        const enc = await encryptArchive(archive, String(encPassword));
         finalArchive = enc.archive;
         encrypted = enc.encrypted;
         encryption = enc.encryption || '';

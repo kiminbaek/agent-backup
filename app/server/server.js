@@ -8,7 +8,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.22.0'; // 备份结果8秒自动收起+关闭按钮; 恢复智能探测QwenPaw路径+预检两步流程+恢复前快照; 修复禁用加密源误触发校验+通用恢复自动建目录
+const VERSION = '2.23.0'; // 每个备份源可单独设加密密码(存config)，定时备份自动用；所有密码框加显示明文眼睛按钮；GET/export掩码源密码不外泄明文
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();

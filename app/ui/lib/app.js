@@ -18,7 +18,13 @@ function fmtSize(n){n=Number(n||0);if(!n)return'0 B';const u=['B','KB','MB','GB'
 function fmtTime(v){if(!v)return'-';let d;if(typeof v==='number')d=new Date(v<1e12?v*1000:v);else d=new Date(v);return isNaN(d)?esc(v):d.toLocaleString('zh-CN',{hour12:false})}
 function clone(o){return JSON.parse(JSON.stringify(o||{}))}
 function toast(msg,type){const t=$('#toast');if(!t)return;t.textContent=msg;t.className='toast '+(type||'info');t.classList.remove('hidden');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.add('hidden'),2800)}
-function togglePwd(id){const el=$('#'+id);if(el)el.type=el.type==='password'?'text':'password'}
+function togglePwd(id){const el=$('#'+id);if(!el)return;var show=el.type==='password';el.type=show?'text':'password';var btn=el.parentNode&&el.parentNode.querySelector('.pwd-eye');if(btn)btn.innerHTML=show?SVG_EYE_OFF:SVG_EYE;}
+// 生成「密码框 + 眼睛按钮」内联 HTML；id 唯一，value 预填，ph 占位符
+function pwdBox(id,ph,value){return '<span class="pwd-wrap"><input id="'+id+'" type="password" placeholder="'+esc(ph||'')+'" value="'+esc(value||'')+'"><button type="button" class="pwd-eye" data-eye="'+id+'" title="显示/隐藏密码">'+SVG_EYE+'</button></span>';}
+var SVG_EYE='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg>';
+var SVG_EYE_OFF='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>';
+// 事件委托：任意 .pwd-eye 点击切换其对应输入框
+document.addEventListener('click',function(e){var b=e.target.closest&&e.target.closest('.pwd-eye');if(b){e.preventDefault();togglePwd(b.dataset.eye);}});
 function backupId(b){return b&&String(b.id||b.name||b.filename||'')}
 function allSources(){return (state.config&&state.config.sources)||[]}
 function enabledSources(){return allSources().filter(s=>s.enabled)}
@@ -130,18 +136,32 @@ function renderSources(){
 }
 function editSource(i){
   var s=i==null?{name:'',path:'',enabled:true,include:['*'],exclude:['node_modules','.git','*.log','*.tmp']}:clone(state.config.sources[i]);
-  modal(i==null?'添加备份内容':'编辑备份内容','<label class="modal-field">名称<input id="s-name" value="'+esc(s.name||'')+'" placeholder="例如：我的文档"></label><label class="modal-field">路径<input id="s-path" value="'+esc(s.path||'')+'" placeholder="/vol3/1000/nas/..."></label><label class="modal-field">包含规则（每行一条）<textarea id="s-include" rows="3">'+esc((s.include||['*']).join('\n'))+'</textarea></label><label class="modal-field">排除规则（每行一条）<textarea id="s-exclude" rows="3">'+esc((s.exclude||[]).join('\n'))+'</textarea></label><label class="check-line"><input id="s-enabled" type="checkbox"'+(s.enabled!==false?' checked':'')+'><span>加入备份内容</span></label><label class="check-line"><input id="s-encrypt" type="checkbox"'+(s.requiresEncryption?' checked':'')+'><span>敏感内容，备份时必须设加密密码</span></label><p class="modal-err hidden" id="s-err"></p>',[
+  var hasPwd=!!s.hasEncryptionPassword;
+  var pwdRowStyle=s.requiresEncryption?'':'display:none';
+  var pwdPh=hasPwd?'已设置密码，留空则不修改':'设置加密密码';
+  modal(i==null?'添加备份内容':'编辑备份内容','<label class="modal-field">名称<input id="s-name" value="'+esc(s.name||'')+'" placeholder="例如：我的文档"></label><label class="modal-field">路径<input id="s-path" value="'+esc(s.path||'')+'" placeholder="/vol3/1000/nas/..."></label><label class="modal-field">包含规则（每行一条）<textarea id="s-include" rows="3">'+esc((s.include||['*']).join('\n'))+'</textarea></label><label class="modal-field">排除规则（每行一条）<textarea id="s-exclude" rows="3">'+esc((s.exclude||[]).join('\n'))+'</textarea></label><label class="check-line"><input id="s-enabled" type="checkbox"'+(s.enabled!==false?' checked':'')+'><span>加入备份内容</span></label><label class="check-line"><input id="s-encrypt" type="checkbox"'+(s.requiresEncryption?' checked':'')+'><span>敏感内容，备份时加密</span></label><div class="modal-field pwd-field" id="s-pwd-row" style="'+pwdRowStyle+'"><span class="pwd-label">加密密码</span>'+pwdBox('s-encpwd',pwdPh,'')+'<small class="pwd-tip">此密码会保存，定时备份也会自动使用。恢复时需要它，请牢记。</small></div><p class="modal-err hidden" id="s-err"></p>',[
     {label:'取消',cls:'ghost'},{label:'保存',cls:'primary',keep:true,onClick:function(){
       var name=$('#s-name').value.trim(),path=$('#s-path').value.trim();
       var err=$('#s-err');
       if(!name||!path){err.textContent='名称和路径不能为空';err.classList.remove('hidden');return false;}
-      var ns={id:s.id||('src-'+Date.now()),name:name,path:path,enabled:$('#s-enabled').checked,requiresEncryption:$('#s-encrypt').checked,include:$('#s-include').value.split('\n').map(function(x){return x.trim();}).filter(Boolean),exclude:$('#s-exclude').value.split('\n').map(function(x){return x.trim();}).filter(Boolean)};
+      var wantEnc=$('#s-encrypt').checked;
+      var pwdInput=($('#s-encpwd').value||'').trim();
+      // 勾选加密但既没设过密码、这次也没填 → 拦下
+      if(wantEnc&&!hasPwd&&!pwdInput){err.textContent='已勾选加密，请设置加密密码';err.classList.remove('hidden');return false;}
+      var ns={id:s.id||('src-'+Date.now()),name:name,path:path,enabled:$('#s-enabled').checked,requiresEncryption:wantEnc,include:$('#s-include').value.split('\n').map(function(x){return x.trim();}).filter(Boolean),exclude:$('#s-exclude').value.split('\n').map(function(x){return x.trim();}).filter(Boolean)};
+      // 密码策略：填了就更新；没填则后端沿用旧密码（前端拿不到明文）；取消加密则清空
+      if(!wantEnc){ns.encryptionPassword='';}
+      else if(pwdInput){ns.encryptionPassword=pwdInput;}
+      // else：不带 encryptionPassword 字段，后端合并旧密码
       if(!ns.include.length)ns.include=['*'];
       state.config.sources=state.config.sources||[];
       if(i==null)state.config.sources.push(ns);else state.config.sources[i]=Object.assign({},state.config.sources[i],ns);
       return Api.saveConfig(state.config).then(function(){toast('已保存','ok');closeModal();renderSources();renderHome();}).catch(function(e){err.textContent=e.message;err.classList.remove('hidden');return false;});
     }}
   ]);
+  // 勾选/取消加密时显隐密码行
+  var enc=$('#s-encrypt'),row=$('#s-pwd-row');
+  if(enc&&row){enc.addEventListener('change',function(){row.style.display=enc.checked?'':'none';});}
 }
 function delSource(i){
   var s=state.config.sources[i];
@@ -313,7 +333,7 @@ function startRestore(id){
     '<p class="modal-msg">将恢复备份：<b>'+esc(id)+'</b></p>'
     +'<label class="modal-field">恢复到目录<input id="restore-target" value="'+esc(tgt)+'"></label>'
     +detectedHint
-    +'<label class="modal-field">解密密码<input id="restore-password" type="password" placeholder="备份时设置的密码（未加密可留空）"></label>'
+    +'<div class="modal-field"><span class="pwd-label">解密密码</span>'+pwdBox('restore-password','备份时设置的密码（未加密可留空）','')+'</div>'
     +'<label class="check-line"><input id="restore-snapshot" type="checkbox" checked><span>恢复前先给当前目录做一次快照（推荐，出问题可回滚）</span></label>'
     +'<p class="modal-msg">下一步会先做安全预检，确认无误再执行。</p>',
     [

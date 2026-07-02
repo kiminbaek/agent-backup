@@ -10,14 +10,47 @@ const audit = require('../lib/audit');
 const requireAuth = auth.requireToken;
 const CONFIG_FILE = storage.CONFIG_FILE;
 
+// v2.23.0：对外掩码源密码——不把明文 encryptionPassword 发到浏览器，只给 hasEncryptionPassword 标志
+function maskConfig(config) {
+    const c = JSON.parse(JSON.stringify(config || {}));
+    if (Array.isArray(c.sources)) {
+        c.sources = c.sources.map(s => {
+            const x = Object.assign({}, s);
+            if (x.encryptionPassword) { x.hasEncryptionPassword = true; delete x.encryptionPassword; }
+            else x.hasEncryptionPassword = false;
+            return x;
+        });
+    }
+    return c;
+}
+
 router.get('/', requireAuth, (req, res) => {
-    try { res.json(storage.loadConfig()); }
+    try { res.json(maskConfig(storage.loadConfig())); }
     catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 router.post('/', requireAuth, (req, res) => {
     const newConfig = req.body;
     if (!newConfig || typeof newConfig !== 'object') return res.status(400).json({ error: 'config 必须是对象' });
+    // v2.23.0：前端不回传明文密码。合并策略——某源本次没带 encryptionPassword 但仍要求加密，则保留旧密码
+    if (Array.isArray(newConfig.sources)) {
+        const old = storage.loadConfig();
+        const oldById = {};
+        (old.sources || []).forEach(s => { if (s.id) oldById[s.id] = s; });
+        newConfig.sources = newConfig.sources.map(s => {
+            const x = Object.assign({}, s);
+            delete x.hasEncryptionPassword; // 仅展示用，不入库
+            if (x.requiresEncryption) {
+                // 本次没带明文密码 → 沿用旧密码
+                if (!x.encryptionPassword && oldById[x.id] && oldById[x.id].encryptionPassword) {
+                    x.encryptionPassword = oldById[x.id].encryptionPassword;
+                }
+            } else {
+                delete x.encryptionPassword; // 取消加密则清掉密码
+            }
+            return x;
+        });
+    }
     if (Array.isArray(newConfig.sources)) {
         const v = validators.validateSourcesBatch(newConfig.sources);
         if (!v.valid) return res.status(400).json({ error: v.errors.join('; ') });
@@ -85,9 +118,15 @@ router.get('/recommended', requireAuth, (req, res) => {
 router.get('/export', requireAuth, (req, res) => {
     try {
         const config = storage.loadConfig();
-        if (req.query.mask !== 'false' && config.notify && config.notify.channels) {
-            for (const ch of Object.values(config.notify.channels)) {
-                if (ch.url) ch.url = ch.url.slice(0, 12) + '***MASKED***';
+        if (req.query.mask !== 'false') {
+            if (config.notify && config.notify.channels) {
+                for (const ch of Object.values(config.notify.channels)) {
+                    if (ch.url) ch.url = ch.url.slice(0, 12) + '***MASKED***';
+                }
+            }
+            // v2.23.0：默认不导出源加密密码明文
+            if (Array.isArray(config.sources)) {
+                config.sources.forEach(s => { if (s.encryptionPassword) delete s.encryptionPassword; });
             }
         }
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -102,10 +141,21 @@ router.post('/import', requireAuth, (req, res) => {
         if (Array.isArray(config.sources)) {
             const v = validators.validateSourcesBatch(config.sources);
             if (!v.valid) return res.status(400).json({ error: v.errors.join('; ') });
+            // v2.23.0：导入若缺密码，尽量沿用现有配置里的旧密码（按 id 匹配）
+            try {
+                const old = storage.loadConfig();
+                const oldById = {};
+                (old.sources || []).forEach(s => { if (s.id) oldById[s.id] = s; });
+                config.sources.forEach(s => {
+                    if (s.requiresEncryption && !s.encryptionPassword && oldById[s.id] && oldById[s.id].encryptionPassword) {
+                        s.encryptionPassword = oldById[s.id].encryptionPassword;
+                    }
+                });
+            } catch (_) { /* ignore */ }
         }
         storage.saveConfig(config);
         audit.write('config.import', { sources: Array.isArray(config.sources) ? config.sources.length : 0 });
-        res.json({ ok: true, config });
+        res.json({ ok: true, config: maskConfig(config) });
     } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
