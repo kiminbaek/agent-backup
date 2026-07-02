@@ -257,6 +257,15 @@ pre{white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;background
 .rec-body small{color:var(--muted);font-size:12px;word-break:break-word}
 .rec-risk{font-size:12px;font-weight:600;margin-left:4px}
 
+/* ---------- 存储迁移选项 ---------- */
+.mig-opts{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.mig-opt{display:flex;align-items:flex-start;gap:10px;padding:11px;border:1px solid var(--line);border-radius:8px;cursor:pointer}
+.mig-opt:hover{background:var(--soft)}
+.mig-opt input{margin-top:3px}
+.mig-body{flex:1;min-width:0}
+.mig-body b{display:block;font-size:14px;font-weight:600}
+.mig-body small{color:var(--muted);font-size:12px}
+
 /* ---------- 移动端 ---------- */
 @media(max-width:860px){
   .side{position:fixed;left:0;top:0;bottom:0;z-index:20;transform:translateX(-100%);transition:transform .2s;height:100vh}

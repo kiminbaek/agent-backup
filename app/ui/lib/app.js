@@ -195,7 +195,7 @@ async function runBackup(){
   const before=new Set(state.backups.map(backupId));
   state.lastBackupRun={before:before,expect:en.length,pwd:pwd};
   $('#backup-result').classList.add('hidden');$('#backup-run-title').textContent='备份进行中……';$('#backup-status').textContent='正在打包，请稍候。';
-  try{const opt={manual:true};if(pwd)opt.password=pwd;await Api.runBackup(opt);pollBackup();}
+  try{const opt={manual:true};if(pwd)opt.encryptionPassword=pwd;await Api.runBackup(opt);pollBackup();}
   catch(e){btn.disabled=false;$('#backup-run-title').textContent='备份失败';$('#backup-status').textContent=e.message;toast(e.message,'error');}
 }
 function pollBackup(){
@@ -419,7 +419,7 @@ async function snapshotAgent(agent){
   var ex=state.config.sources.find(function(s){return s.id===g.id;});
   if(ex)Object.assign(ex,g);else state.config.sources.push(g);
   progressModal('快照 Agent '+agent);
-  try{await Api.saveConfig(state.config);setProgress(12,'已启动，开始备份……');await Api.runBackup({manual:true,only:[g.id]});
+  try{await Api.saveConfig(state.config);setProgress(12,'已启动，开始备份……');await Api.runBackup({manual:true,sourceIds:[g.id]});
     await watchBackup();
     setTimeout(function(){closeModal();},900);
     await loadAgents();toast('Agent '+agent+' 快照完成','ok');
@@ -502,8 +502,49 @@ function renderStorageForm(){
   var gf=$('#gfs-fields');if(gf)gf.classList.toggle('hidden',!(gfs.enabled));
 }
 async function saveStorage(){
-  state.config.storage=Object.assign({},state.config.storage,{root:$('#storage-root').value.trim(),layout:$('#storage-layout').value,trashDays:+$('#storage-trash-days').value||7,maxUploadGB:+$('#storage-max-upload').value||20});
-  try{await Api.saveConfig(state.config);toast('存储设置已保存','ok');}catch(e){toast(e.message,'error');}
+  var newRoot=$('#storage-root').value.trim();
+  var oldRoot=(state.config&&state.config.storage&&state.config.storage.root)||'';
+  var others={layout:$('#storage-layout').value,trashDays:+$('#storage-trash-days').value||7,maxUploadGB:+$('#storage-max-upload').value||20};
+  // 位置未变：仅保存其它设置
+  if(!newRoot||newRoot===oldRoot){
+    state.config.storage=Object.assign({},state.config.storage,{root:newRoot||oldRoot},others);
+    try{await Api.saveConfig(state.config);toast('存储设置已保存','ok');}catch(e){toast(e.message,'error');}
+    return;
+  }
+  // 位置变了：先保存其它设置，再检测旧位置是否有备份需要处理
+  state.config.storage=Object.assign({},state.config.storage,others);
+  try{await Api.saveConfig(state.config);}catch(e){toast(e.message,'error');return;}
+  var pre={count:0};
+  try{pre=await Api.migratePreview();}catch(e){/* 预览失败按无备份处理 */}
+  if(!pre.count){
+    // 旧位置没有备份，直接切换
+    try{var r=await Api.migrateStorage(newRoot,'switch');await loadConfig();toast('存储位置已切换','ok');renderStorageForm();renderHome();}catch(e){toast(e.message,'error');}
+    return;
+  }
+  // 旧位置有备份，弹三选项
+  var body='<p class="modal-msg">当前存储位置有 <b>'+pre.count+'</b> 个备份文件（共 '+esc(pre.bytesHuman)+'）。<br>你要把存储位置切换到：<br><b>'+esc(newRoot)+'</b><br><br>请选择如何处理旧位置的备份：</p>'
+    +'<div class="mig-opts">'
+    +'<label class="mig-opt"><input type="radio" name="migmode" value="migrate" checked><span class="mig-body"><b>迁移（推荐）</b><small>把旧备份文件搬到新位置，旧位置清空。切换后备份无缝衔接。</small></span></label>'
+    +'<label class="mig-opt"><input type="radio" name="migmode" value="copy"><span class="mig-body"><b>复制</b><small>把旧备份复制到新位置，旧位置保留一份。更安全，但会占用双份空间（约 '+esc(pre.bytesHuman)+'）。</small></span></label>'
+    +'<label class="mig-opt"><input type="radio" name="migmode" value="switch"><span class="mig-body"><b>仅切换</b><small>只改位置，旧备份留在原地不动。应用将不再显示这些旧备份（文件不会丢，需要时可把位置改回去）。</small></span></label>'
+    +'</div>';
+  modal('切换存储位置',body,[
+    {label:'取消',cls:'ghost'},
+    {label:'确定切换',cls:'primary',keep:true,onClick:async function(){
+      var mode='migrate';var cb=$$('#modal input[name="migmode"]').find(function(x){return x.checked;});if(cb)mode=cb.value;
+      var btns=$$('#modal-footer button');btns.forEach(function(b){b.disabled=true;});
+      toast('正在处理，请稍候……','info');
+      try{
+        var r=await Api.migrateStorage(newRoot,mode);
+        var msg=mode==='migrate'?('已迁移 '+r.moved+' 个备份到新位置'):mode==='copy'?('已复制 '+r.copied+' 个备份到新位置'):'已切换存储位置（旧备份保留在原位置）';
+        if(r.skipped)msg+='，跳过 '+r.skipped+' 个';
+        if(r.failed)msg+='，失败 '+r.failed+' 个';
+        await loadConfig();
+        toast(msg,r.failed?'error':'ok');
+        closeModal();renderStorageForm();renderHome();
+      }catch(e){btns.forEach(function(b){b.disabled=false;});toast(e.message,'error');return false;}
+    }}
+  ]);
 }
 async function saveRetention(){
   state.config.retention=Object.assign({},state.config.retention,{days:+$('#ret-days').value||30,keepLast:+$('#ret-keeplast').value||10,maxTotalSizeGB:+$('#ret-maxgb').value||100,gfs:{enabled:$('#gfs-enabled').checked,daily:+$('#gfs-daily').value||7,weekly:+$('#gfs-weekly').value||4,monthly:+$('#gfs-monthly').value||12}});

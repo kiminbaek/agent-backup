@@ -301,10 +301,91 @@ function organize(config) {
     return { ok: failed === 0, moved, skipped, failed, errors };
 }
 
+// v2.21.5：预览迁移 —— 统计当前根目录下有多少可迁移的备份文件及总大小
+function previewMigrate(config) {
+    const c = normalizeConfig(config || loadConfig());
+    const meta = loadMeta(c);
+    let count = 0, bytes = 0;
+    for (const b of meta.backups) {
+        if (b.status === 'success' && b.archive && fs.existsSync(b.archive)) {
+            count++;
+            try { bytes += fs.statSync(b.archive).size; } catch (_) { /* ignore */ }
+        }
+    }
+    const trashDir = path.join(getBackupRoot(c), '.trash');
+    let trashCount = 0;
+    try { if (fs.existsSync(trashDir)) trashCount = fs.readdirSync(trashDir).length; } catch (_) { /* ignore */ }
+    return { fromRoot: getBackupRoot(c), count, bytes, bytesHuman: humanSize(bytes), trashCount };
+}
+
+// v2.21.5：切换存储位置 + 可选迁移旧备份
+// mode: 'migrate'（移动文件到新目录）| 'copy'（复制到新目录，旧目录保留）| 'switch'（仅切换，不动旧备份）
+function migrateStorage(newRoot, mode, opts) {
+    opts = opts || {};
+    const c = normalizeConfig(loadConfig());
+    const oldRoot = getBackupRoot(c);
+    const v = validateBackupRoot(newRoot, true);
+    if (!v.ok) throw new Error(v.error);
+    const targetRoot = v.path;
+
+    if (path.resolve(targetRoot) === path.resolve(oldRoot)) {
+        return { ok: true, mode, moved: 0, copied: 0, skipped: 0, failed: 0, errors: [], note: '新位置与当前位置相同，未做任何变更' };
+    }
+
+    let moved = 0, copied = 0, skipped = 0, failed = 0;
+    const errors = [];
+
+    if (mode === 'migrate' || mode === 'copy') {
+        const meta = loadMeta(c); // 从旧根读索引
+        for (const b of meta.backups) {
+            if (b.status !== 'success' || !b.archive) { skipped++; continue; }
+            if (!fs.existsSync(b.archive)) { skipped++; continue; }
+            try {
+                // 镜像相对路径：保留原始文件名（含 .enc 等后缀）和子目录结构
+                let target;
+                const rel = path.relative(oldRoot, b.archive);
+                if (rel && !rel.startsWith('..') && !path.isAbsolute(rel)) {
+                    target = path.join(targetRoot, rel);
+                } else {
+                    // 备份文件不在旧根之下（如导入的），放到新根下按原文件名存
+                    target = path.join(targetRoot, path.basename(b.archive));
+                }
+                ensureDir(path.dirname(target), 0o700);
+                if (fs.existsSync(target)) { skipped++; continue; }
+                if (mode === 'migrate') {
+                    try { fs.renameSync(b.archive, target); }
+                    catch (e) { fs.copyFileSync(b.archive, target); fs.unlinkSync(b.archive); } // 跨设备 rename 失败则复制+删
+                    b.archive = target;
+                    moved++;
+                } else {
+                    fs.copyFileSync(b.archive, target);
+                    b.archive = target;
+                    copied++;
+                }
+            } catch (e) {
+                failed++;
+                errors.push(`${b.id}: ${e.message}`);
+            }
+        }
+        // 把（已改写 archive 路径的）索引写入新根
+        ensureDir(targetRoot, 0o700);
+        atomicWriteJson(path.join(targetRoot, 'index.json'), meta, 0o600);
+    }
+    // switch 模式：不搬文件，新根 index.json 由后续 ensureBackupRoot/loadMeta 生成为空
+
+    // 更新配置指向新根
+    c.storage = Object.assign({}, c.storage, { root: targetRoot });
+    saveConfig(c);
+    ensureBackupRoot(c);
+
+    return { ok: failed === 0, mode, fromRoot: oldRoot, toRoot: targetRoot, moved, copied, skipped, failed, errors };
+}
+
 module.exports = {
     APP_NAME, APP_DATA_DIR, CONFIG_FILE, TMP_DIR, DEFAULT_BACKUP_ROOT, ALLOWED_ROOTS,
     ensureDir, atomicWriteJson, defaultConfig, normalizeConfig, loadConfig, saveConfig,
     pathAllowed, validateBackupRoot, getBackupRoot, getMetaFile, ensureBackupRoot,
     loadMeta, saveMeta, archivePathFor, archiveDirFor, trashPathFor,
-    getFreeBytes, dirSizeBytes, humanSize, enrichBackup, storageInfo, organize
+    getFreeBytes, dirSizeBytes, humanSize, enrichBackup, storageInfo, organize,
+    previewMigrate, migrateStorage
 };

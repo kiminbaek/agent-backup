@@ -8,7 +8,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.21.4'; // 智能推荐恢复动态分析：调 qwenpawAnalyze 生成完整推荐清单（十余项，含风险分级），替换固定4项
+const VERSION = '2.21.5'; // 修复加密密码字段名(password→encryptionPassword)+单agent快照only→sourceIds+存储位置迁移(迁移/复制/仅切换三选项)
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
