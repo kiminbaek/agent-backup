@@ -8,7 +8,7 @@ const appdb = require('./lib/appdb-sync');
 const auth = require('./lib/auth');
 
 const PORT = 12083;
-const VERSION = '2.21.5'; // 修复加密密码字段名(password→encryptionPassword)+单agent快照only→sourceIds+存储位置迁移(迁移/复制/仅切换三选项)
+const VERSION = '2.22.0'; // 备份结果8秒自动收起+关闭按钮; 恢复智能探测QwenPaw路径+预检两步流程+恢复前快照; 修复禁用加密源误触发校验+通用恢复自动建目录
 const UI_DIR = path.join(__dirname, '..', 'ui');
 const LOG_FILE = logger.SERVER_LOG;
 const app = express();
@@ -58,10 +58,55 @@ app.get('/api/health', (req, res) => {
     res.json({ ok: true, service: 'agent-backup', port: PORT });
 });
 
-// 应用信息（仅返回版本号，不泄露 IP/hostname）
+// 应用信息（版本号 + 探测到的 QwenPaw 数据目录，供恢复默认路径用；不泄露 IP/hostname）
 app.get('/api/info', auth.requireToken, (req, res) => {
-    res.json({ version: VERSION });
+    res.json({ version: VERSION, qwenpaw: detectQwenpawRoot() });
 });
+
+// 探测 QwenPaw 数据根目录（.qwenpaw），返回候选与推荐值。用于恢复时智能填默认目标路径。
+// 不写死单一路径：优先环境变量，其次常见安装位置，校验其下是否含 workspaces / config.json。
+function detectQwenpawRoot() {
+    const candidates = [];
+    const push = (p, source) => { if (p && !candidates.some(c => c.path === path.resolve(p))) candidates.push({ path: path.resolve(p), source }); };
+    // 1) 环境变量（若 QwenPaw 有导出）
+    if (process.env.QWENPAW_DATA_DIR) push(process.env.QWENPAW_DATA_DIR, 'env:QWENPAW_DATA_DIR');
+    if (process.env.QWENPAW_HOME) push(path.join(process.env.QWENPAW_HOME, '.qwenpaw'), 'env:QWENPAW_HOME');
+    // 2) 常见安装位置（飞牛 fnOS 默认）
+    push('/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw', 'fnos-appshare');
+    // 3) 从本应用数据目录反推同级 appshare
+    for (const base of ['/vol1', '/vol2', '/vol3', '/vol4']) {
+        push(path.join(base, '@appshare/com.dustinky.qwenpaw/.qwenpaw'), 'scan-vol');
+    }
+    // 4) 用户家目录
+    if (process.env.HOME) push(path.join(process.env.HOME, '.qwenpaw'), 'home');
+
+    const results = candidates.map(c => {
+        let exists = false, hasWorkspaces = false, hasConfig = false, agents = 0;
+        try {
+            exists = fs.existsSync(c.path) && fs.statSync(c.path).isDirectory();
+            if (exists) {
+                const ws = path.join(c.path, 'workspaces');
+                hasWorkspaces = fs.existsSync(ws) && fs.statSync(ws).isDirectory();
+                hasConfig = fs.existsSync(path.join(c.path, 'config.json'));
+                if (hasWorkspaces) {
+                    try { agents = fs.readdirSync(ws, { withFileTypes: true }).filter(e => e.isDirectory()).length; } catch (_) { /* ignore */ }
+                }
+            }
+        } catch (_) { /* ignore */ }
+        // 打分：存在+有workspaces 最高
+        const score = (exists ? 1 : 0) + (hasWorkspaces ? 4 : 0) + (hasConfig ? 2 : 0) + Math.min(agents, 5) * 0.1;
+        return { path: c.path, source: c.source, exists, hasWorkspaces, hasConfig, agents, score };
+    });
+    results.sort((a, b) => b.score - a.score);
+    const best = results.find(r => r.score > 0) || results[0] || null;
+    return {
+        root: best ? best.path : '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw',
+        workspaces: best ? path.join(best.path, 'workspaces') : '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces',
+        detected: !!(best && best.hasWorkspaces),
+        agents: best ? best.agents : 0,
+        candidates: results.filter(r => r.exists)
+    };
+}
 
 function readTailLines(file, lines) {
     if (!file || !fs.existsSync(file)) {

@@ -55,9 +55,11 @@ router.post('/run', requireAuth, (req, res) => {
         // v2.6.0：支持 sourceIds 过滤（智能体单独快照）
         const ids = req.body && Array.isArray(req.body.sourceIds) ? req.body.sourceIds : null;
         if (ids && ids.length) sources = sources.filter(s => ids.includes(s.id));
-        if (sources.some(s => s.requiresEncryption) && !(req.body && req.body.encryptionPassword)) return res.status(400).json({ error: '所选备份源包含敏感配置，必须提供加密密码' });
+        // v2.22.0 修复：加密校验只针对"实际会备份"的源（启用的），避免被禁用的加密源误触发
+        const effective = sources.filter(s => s.enabled !== false);
+        if (effective.some(s => s.requiresEncryption) && !(req.body && req.body.encryptionPassword)) return res.status(400).json({ error: '所选备份源包含敏感配置，必须提供加密密码' });
         startBackgroundBackup(sources, req.body || {});
-        res.json({ ok: true, started: true, count: sources.length });
+        res.json({ ok: true, started: true, count: effective.length });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }

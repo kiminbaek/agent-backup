@@ -209,18 +209,25 @@ function pollBackup(){
     if((!running&&(added.length>0||n>3))||n>150){clearInterval(timer);state.polling=false;$('#start-backup-btn').disabled=false;renderBackupResult(added,s);renderHome();}
   },2000);
 }
+function hideBackupResult(){var b=$('#backup-result');if(b){b.classList.remove('result-fade');b.classList.add('hidden');}$('#backup-run-title').textContent='准备就绪';$('#backup-status').textContent='选择内容后点击开始备份。';if(state._resultTimer){clearTimeout(state._resultTimer);state._resultTimer=null;}}
 function renderBackupResult(added,s){
-  var box=$('#backup-result');box.classList.remove('hidden');
+  var box=$('#backup-result');box.classList.remove('hidden');box.classList.remove('result-fade');
+  if(state._resultTimer){clearTimeout(state._resultTimer);state._resultTimer=null;}
   var ok=added.filter(function(b){return(b.status||b.health||'success')!=='error';}).length;
   var fail=added.length-ok;
   if(added.length===0&&s&&s.error){
     $('#backup-run-title').textContent='备份失败';$('#backup-status').textContent=s.error;
     box.innerHTML='<div class="result-fail"><b>备份失败</b><p>'+esc(s.error)+'</p><div class="btn-row"><button class="btn ghost small" data-go2="more">查看日志</button><button class="btn primary small" id="rb-retry">重新备份</button></div></div>';
+    // 失败不自动收起，让用户看清原因
   }else{
     $('#backup-run-title').textContent='备份完成';$('#backup-status').textContent='成功 '+ok+' 份'+(fail?'，失败 '+fail+' 份':'');
-    box.innerHTML='<div class="result-ok"><b>备份完成：成功 '+ok+' 份'+(fail?'，失败 '+fail+' 份':'')+'</b>'+(added.length?'<div class="mini-list">'+added.map(function(b){return'<div class="mini-item"><span>'+esc(b.name||b.id)+'</span><small>'+fmtSize(b.size)+'</small></div>';}).join('')+'</div>':'')+'<div class="btn-row"><button class="btn ghost small" data-go2="more">查看备份库</button><button class="btn primary small" id="rb-again">继续备份</button></div></div>';
+    box.innerHTML='<div class="result-ok"><button class="result-close" id="rb-close" title="关闭" aria-label="关闭">&times;</button><b>备份完成：成功 '+ok+' 份'+(fail?'，失败 '+fail+' 份':'')+'</b>'+(added.length?'<div class="mini-list">'+added.slice(0,6).map(function(b){return'<div class="mini-item"><span>'+esc(b.name||b.id)+'</span><small>'+fmtSize(b.size)+'</small></div>';}).join('')+(added.length>6?'<div class="mini-item muted"><span>…等 '+added.length+' 份</span></div>':'')+'</div>':'')+'<div class="btn-row"><button class="btn ghost small" data-go2="more">查看备份库</button><button class="btn ghost small" id="rb-again">再备份一次</button><button class="btn primary small" id="rb-known">知道了</button></div></div>';
+    // 成功后 8 秒自动淡出收起
+    state._resultTimer=setTimeout(function(){var bb=$('#backup-result');if(bb&&!bb.classList.contains('hidden')){bb.classList.add('result-fade');setTimeout(hideBackupResult,600);}},8000);
   }
-  var again=$('#rb-again');if(again)again.onclick=function(){$('#backup-result').classList.add('hidden');$('#backup-run-title').textContent='准备就绪';$('#backup-status').textContent='选择内容后点击开始备份。';};
+  var known=$('#rb-known');if(known)known.onclick=hideBackupResult;
+  var close=$('#rb-close');if(close)close.onclick=hideBackupResult;
+  var again=$('#rb-again');if(again)again.onclick=hideBackupResult;
   var retry=$('#rb-retry');if(retry)retry.onclick=runBackup;
   $$('[data-go2]',box).forEach(function(b){b.onclick=function(){go(b.dataset.go2);};});
 }
@@ -293,14 +300,65 @@ async function previewRestore(id){
     if(restoreBtn)restoreBtn.onclick=function(){closeModal();startRestore(id);};
   }catch(e){toast(e.message,'error');}
 }
+function defaultRestoreTarget(){
+  var q=state.info&&state.info.qwenpaw;
+  if(q&&q.workspaces)return q.workspaces;
+  return '/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces';
+}
 function startRestore(id){
-  modal('恢复备份','<p class="modal-msg">将恢复备份：<b>'+esc(id)+'</b></p><label class="modal-field">恢复到目录<input id="restore-target" value="/vol3/@appshare/com.dustinky.qwenpaw/.qwenpaw/workspaces"></label><label class="modal-field">解密密码<input id="restore-password" type="password" placeholder="备份时设置的密码（可选）"></label><p class="modal-msg warn">恢复会覆盖目标目录中的同名文件。确认后执行。</p>',[
-    {label:'取消',cls:'ghost'},{label:'确认恢复',cls:'primary',onClick:async function(){
-      var target=$('#restore-target').value.trim(),password=$('#restore-password').value.trim();
-      if(!target){toast('请输入恢复目录','error');return false;}
-      try{await Api.executeRestore(id,target,password);toast('恢复已执行','ok');loadRestore();renderRestore();}catch(e){toast('恢复失败：'+e.message,'error');}
-    }}
-  ]);
+  var q=state.info&&state.info.qwenpaw;
+  var tgt=defaultRestoreTarget();
+  var detectedHint=q&&q.detected?('<p class="restore-detect ok">已自动检测到 QwenPaw 数据目录'+(q.agents?('（'+q.agents+' 个智能体）'):'')+'，已为你填好。若在其它机器/路径恢复，可手动修改。</p>'):'<p class="restore-detect warn">未能自动检测到 QwenPaw 目录，请确认下方路径是否为你当前 QwenPaw 的 workspaces 目录。</p>';
+  modal('恢复备份',
+    '<p class="modal-msg">将恢复备份：<b>'+esc(id)+'</b></p>'
+    +'<label class="modal-field">恢复到目录<input id="restore-target" value="'+esc(tgt)+'"></label>'
+    +detectedHint
+    +'<label class="modal-field">解密密码<input id="restore-password" type="password" placeholder="备份时设置的密码（未加密可留空）"></label>'
+    +'<label class="check-line"><input id="restore-snapshot" type="checkbox" checked><span>恢复前先给当前目录做一次快照（推荐，出问题可回滚）</span></label>'
+    +'<p class="modal-msg">下一步会先做安全预检，确认无误再执行。</p>',
+    [
+      {label:'取消',cls:'ghost'},
+      {label:'下一步：安全预检',cls:'primary',keep:true,onClick:async function(){
+        var target=$('#restore-target').value.trim(),password=$('#restore-password').value.trim();
+        var snapshot=$('#restore-snapshot').checked;
+        if(!target){toast('请输入恢复目录','error');return false;}
+        var btns=$$('#modal-footer button');btns.forEach(function(b){b.disabled=true;});
+        toast('正在做安全预检……','info');
+        try{
+          var pf=await Api.restorePreflight(id,target,{password:password,createMissing:true,qwenpaw:true});
+          showPreflight(id,target,password,snapshot,pf);
+        }catch(e){btns.forEach(function(b){b.disabled=false;});toast('预检失败：'+e.message,'error');return false;}
+      }}
+    ]);
+}
+function showPreflight(id,target,password,snapshot,pf){
+  var checks=(pf&&pf.checks)||[];
+  var allOk=pf&&pf.ok;
+  var rows=checks.map(function(c){
+    var pass=c.ok!==false;
+    return '<div class="pf-row"><span class="pf-icon '+(pass?'ok':'bad')+'">'+(pass?'✓':'✕')+'</span><span class="pf-body"><b>'+esc(c.name)+'</b>'+(c.detail?'<small>'+esc(c.detail)+'</small>':'')+'</span></div>';
+  }).join('');
+  var riskTxt=pf&&pf.risk?('<div class="pf-risk pf-risk-'+({'极高':'crit','高':'warn','中':'mid','低':'ok'}[pf.risk.level]||'mid')+'">风险等级：<b>'+esc(pf.risk.level)+'</b>'+(pf.risk.message?(' · '+esc(pf.risk.message)):'')+'</div>'):'';
+  var qs=pf&&pf.qwenpawStats;
+  var qsTxt=qs?('<p class="modal-msg">归档内容：workspaces '+(qs.hasWorkspaces?'有':'无')+' · 含 '+(qs.agentsWithMemory||0)+' 个智能体记忆 · 全局配置 '+(qs.hasGlobal?'有':'无')+' · 技能 '+(qs.hasSkills?'有':'无')+'</p>'):'';
+  var body='<p class="modal-msg">目标目录：<b>'+esc(target)+'</b></p>'+riskTxt+'<div class="pf-list">'+rows+'</div>'+qsTxt
+    +'<p class="modal-msg '+(allOk?'':'warn')+'">'+(allOk?'预检通过。恢复会覆盖目标目录中的同名文件。':'预检发现问题（见上方红叉项），继续恢复可能失败或产生风险。')+'</p>'
+    +(snapshot?'<p class="modal-msg">已选择恢复前快照，可在「更多」查看快照文件。</p>':'<p class="modal-msg warn">未选择恢复前快照，恢复后将无法一键回滚。</p>');
+  var buttons=[{label:'返回',cls:'ghost',keep:true,onClick:function(){startRestore(id);}}];
+  buttons.push({label:allOk?'确认恢复':'仍要恢复',cls:allOk?'primary':'danger',keep:true,onClick:async function(){
+    var btns=$$('#modal-footer button');btns.forEach(function(b){b.disabled=true;});
+    toast('正在恢复，请稍候……','info');
+    try{
+      // qwenpaw 模式（含 workspaces）走整体恢复接口，内置校验+快照；否则走通用恢复
+      var useQwenpaw=qs&&qs.hasWorkspaces;
+      var r;
+      if(useQwenpaw){r=await Api.restoreQwenPaw(id,target,password);}
+      else{r=await Api.executeRestore(id,target,password);}
+      var snapMsg=(r&&r.snapshot&&!r.snapshot.skipped)?('，已保存恢复前快照（'+(r.snapshot.human||'')+'）'):'';
+      closeModal();toast('恢复完成'+snapMsg,'ok');loadRestore();renderRestore();
+    }catch(e){btns.forEach(function(b){b.disabled=false;});toast('恢复失败：'+e.message,'error');return false;}
+  }});
+  modal('恢复安全预检',body,buttons);
 }
 async function loadTrash(){try{var r=await Api.trash();state.trash=r.items||r.trash||r.backups||[];var s=await Api.trashStats();renderTrash(s);}catch(_){state.trash=[];}}
 function renderTrash(stats){

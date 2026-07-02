@@ -180,6 +180,13 @@ async function preview(id, targetPath, password) {
 }
 
 async function restore(id, targetPath, password) {
+    // v2.22.0：目标目录不存在时先自动创建（父目录可写），再做白名单/存在性校验
+    const absTarget = path.resolve(targetPath);
+    if (!fs.existsSync(absTarget)) {
+        const pw = parentWritable(absTarget);
+        if (!pw.ok) throw new Error(`目标目录不存在且无法创建（父目录不可写）：${pw.path}`);
+        fs.mkdirSync(absTarget, { recursive: true });
+    }
     const v = validators.validateRestoreTarget(targetPath);
     if (!v.valid) throw new Error(v.error);
     const item = backup.getBackup(id);
